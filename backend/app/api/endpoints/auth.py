@@ -6,11 +6,16 @@ Supports two auth flows:
 2. GitHub OAuth (redirect → callback → JWT)
 """
 
+import re
+import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 from app.core.database import get_db
+from app.core.config import settings
+from app.core.rate_limit import rate_limit
 from app.core.security import (
     hash_password,
     verify_password,
@@ -18,6 +23,7 @@ from app.core.security import (
     get_current_user,
 )
 from app.models.user import User
+from app.models.organization import Organization, Membership, OrgRole
 from app.schemas.auth import (
     RegisterRequest,
     LoginRequest,
@@ -30,7 +36,51 @@ from app.services.github_service import GitHubService
 router = APIRouter()
 
 
-@router.post("/register", response_model=TokenResponse, status_code=201)
+async def _ensure_personal_org(db: AsyncSession, user: User) -> None:
+    """
+    Auto-create the personal Organization + owner Membership for a new user.
+    Called after a successful registration (email or GitHub).
+    Idempotent — safe to call for existing users.
+    """
+    existing = await db.execute(
+        select(Membership)
+        .join(Organization, Organization.id == Membership.organization_id)
+        .where(
+            Membership.user_id == user.id,
+            Organization.is_personal.is_(True),
+        )
+    )
+    if existing.scalar_one_or_none():
+        return
+
+    base_slug = re.sub(r"[^a-z0-9-]+", "-", (user.full_name or user.email.split("@")[0]).lower()).strip("-") or "personal"
+    # Ensure unique slug
+    slug = base_slug
+    for _ in range(5):
+        check = await db.execute(select(Organization).where(Organization.slug == slug))
+        if not check.scalar_one_or_none():
+            break
+        slug = f"{base_slug}-{secrets.token_hex(3)}"
+
+    org = Organization(
+        name=f"{user.full_name or user.email.split('@')[0]}'s workspace",
+        slug=slug,
+        is_personal=True,
+        plan="free",
+        seats=1,
+    )
+    db.add(org)
+    await db.flush()
+
+    membership = Membership(
+        user_id=user.id,
+        organization_id=org.id,
+        role=OrgRole.owner,
+    )
+    db.add(membership)
+
+
+@router.post("/register", dependencies=[Depends(rate_limit("auth", limit=10, window=60))], response_model=TokenResponse, status_code=201)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     # check if email already taken
     existing = await db.execute(select(User).where(User.email == body.email))
@@ -46,6 +96,10 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     await db.flush()
     await db.refresh(user)
 
+    # Every new user gets a personal organization
+    await _ensure_personal_org(db, user)
+    await db.commit()
+
     token = create_access_token(user.id)
     return TokenResponse(
         access_token=token,
@@ -53,7 +107,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", dependencies=[Depends(rate_limit("auth", limit=10, window=60))], response_model=TokenResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
@@ -74,7 +128,28 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 @router.get("/github/url")
 async def github_oauth_url():
     """Returns the GitHub OAuth authorization URL for the frontend to redirect to."""
+    if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "GitHub OAuth is not configured on this server. "
+                "An administrator must set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET "
+                "environment variables. See https://docs.github.com/en/apps/oauth-apps/"
+                "building-oauth-apps/creating-an-oauth-app for setup instructions."
+            ),
+        )
     return {"url": GitHubService.get_oauth_url()}
+
+
+@router.get("/github/status")
+async def github_oauth_status():
+    """
+    Check whether GitHub OAuth is configured on this server without exposing secrets.
+    Used by the frontend to decide whether to show the "Continue with GitHub" button.
+    """
+    return {
+        "configured": bool(settings.GITHUB_CLIENT_ID and settings.GITHUB_CLIENT_SECRET),
+    }
 
 
 @router.post("/github/callback", response_model=TokenResponse)
@@ -132,6 +207,10 @@ async def github_callback(body: GitHubCallbackRequest, db: AsyncSession = Depend
     await db.flush()
     await db.refresh(user)
 
+    # Ensure the user has a personal organization (idempotent for existing users)
+    await _ensure_personal_org(db, user)
+    await db.commit()
+
     token = create_access_token(user.id)
     return TokenResponse(
         access_token=token,
@@ -142,3 +221,56 @@ async def github_callback(body: GitHubCallbackRequest, db: AsyncSession = Depend
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_user)):
     return UserResponse.model_validate(user)
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: str | None = None
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_profile(
+    body: UpdateProfileRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the current user's profile (display name)."""
+    if body.full_name is not None:
+        user.full_name = body.full_name.strip() or None
+    await db.flush()
+    await db.refresh(user)
+    return UserResponse.model_validate(user)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+async def change_password(
+    body: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change the current user's password."""
+    if not user.hashed_password:
+        raise HTTPException(
+            status_code=400,
+            detail="This account signed up with GitHub OAuth and has no password to change.",
+        )
+    if not verify_password(body.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    user.hashed_password = hash_password(body.new_password)
+    await db.flush()
+    return {"message": "Password updated"}
+
+
+@router.delete("/me", status_code=204)
+async def delete_account(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete the current user's account and all their data."""
+    await db.delete(user)

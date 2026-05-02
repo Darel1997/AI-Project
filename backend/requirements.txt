@@ -22,7 +22,9 @@ httpx==0.28.1
 
 # ── AI / Embeddings ──────────────────────────────────
 openai==1.59.6
+anthropic==0.42.0
 chromadb==0.5.23
+sentence-transformers==3.3.1
 
 # ── Background workers ───────────────────────────────
 celery[redis]==5.4.0

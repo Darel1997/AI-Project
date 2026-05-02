@@ -73,22 +73,23 @@ if [ -f .env ]; then
 fi
 
 if [ "$SKIP_ENV" != "true" ]; then
-    echo "  You need two things (both are free to set up):"
+    echo "  You need two things:"
     echo ""
-    echo "  1. OpenAI API key"
-    echo "     Get one at: https://platform.openai.com/api-keys"
+    echo "  1. Anthropic API key (FREE with Claude Pro subscription)"
+    echo "     Get one at: https://console.anthropic.com/settings/keys"
     echo ""
     echo "  2. GitHub OAuth app (optional — needed for GitHub login)"
     echo "     Create one at: https://github.com/settings/developers"
     echo "     Set callback URL to: http://localhost:3000/auth/github/callback"
     echo ""
+    echo "  Note: Embeddings run locally for free — no API key needed for indexing."
+    echo ""
 
-    # OpenAI key
-    read -p "  Enter your OpenAI API key (starts with sk-): " OPENAI_KEY
-    if [ -z "$OPENAI_KEY" ]; then
-        echo -e "${RED}  OpenAI key is required for AI features to work.${RESET}"
-        echo "  You can still run the app, but chat/docs/tasks won't work."
-        OPENAI_KEY="sk-placeholder-replace-me"
+    # Anthropic key
+    read -p "  Enter your Anthropic API key (starts with sk-ant-): " ANTHROPIC_KEY
+    if [ -z "$ANTHROPIC_KEY" ]; then
+        echo -e "${YELLOW}  No key entered — chat/docs/tasks won't work until you add one.${RESET}"
+        ANTHROPIC_KEY="not-set"
     fi
 
     # GitHub OAuth (optional)
@@ -130,8 +131,12 @@ JWT_EXPIRE_MINUTES=1440
 GITHUB_CLIENT_ID=${GH_CLIENT_ID}
 GITHUB_CLIENT_SECRET=${GH_CLIENT_SECRET}
 
-# OpenAI
-OPENAI_API_KEY=${OPENAI_KEY}
+# AI Chat — Claude (free with Pro subscription)
+ANTHROPIC_API_KEY=${ANTHROPIC_KEY}
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
+
+# OpenAI (optional fallback — requires paid credits)
+OPENAI_API_KEY=not-set
 OPENAI_MODEL=gpt-4o
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 

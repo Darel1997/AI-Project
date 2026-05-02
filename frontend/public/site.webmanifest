@@ -1,0 +1,13 @@
+{
+  "name": "RepoInsight AI",
+  "short_name": "RepoInsight",
+  "description": "AI-powered codebase analysis for engineering teams",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "theme_color": "#0b0f17",
+  "background_color": "#0b0f17",
+  "display": "standalone",
+  "start_url": "/dashboard",
+  "orientation": "portrait-primary"
+}

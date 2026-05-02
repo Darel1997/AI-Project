@@ -6,6 +6,9 @@ AI service retrieves relevant code chunks from ChromaDB to
 ground its answers.
 """
 
+import asyncio
+import functools
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,9 +68,14 @@ async def send_message(
     history_msgs = list(reversed(history_result.scalars().all()))
     history = [{"role": m.role, "content": m.content} for m in history_msgs]
 
-    # call the AI service with RAG
+    # Call the AI service with RAG. The sync method involves a blocking HTTP
+    # call to Anthropic — run it in the default thread pool so it doesn't
+    # pin the FastAPI event loop while a single chat is in flight.
     ai = AIService()
-    result = ai.chat_with_repo(repo.id, body.message, history=history)
+    result = await asyncio.get_running_loop().run_in_executor(
+        None,
+        functools.partial(ai.chat_with_repo, repo.id, body.message, history),
+    )
 
     # save user message
     user_msg = ChatMessage(

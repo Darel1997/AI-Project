@@ -61,6 +61,15 @@ services:
     volumes:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # Healthcheck so `docker compose ps` reflects whether the API is actually
+    # serving traffic, not just whether the process is alive. A dead API shows
+    # as "unhealthy" instead of misleading "Up".
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   worker:
     build: ./backend
@@ -75,7 +84,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: celery -A app.workers.tasks.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A app.workers.tasks.celery_app worker --loglevel=info --concurrency=4
 
   frontend:
     build: ./frontend
@@ -83,12 +92,22 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      # Wait for the API to be HEALTHY (not just started). Without this, the
+      # frontend boots while the API is still initializing and the first user
+      # gets a "Cannot reach the API server" error on the auth page.
+      api:
+        condition: service_healthy
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
     volumes:
       - ./frontend/src:/app/src
     command: npm run dev
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   pgdata:
