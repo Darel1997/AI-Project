@@ -162,4 +162,4 @@ See [`.env.example`](.env.example) for the full list. Key ones:
 
 ## License
 
-MIT
+Darel
