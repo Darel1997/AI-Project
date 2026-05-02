@@ -29,11 +29,34 @@ class Settings(BaseSettings):
     # ── GitHub ────────────────────────────────────────
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
+    # Webhook secret for AI PR Reviewer. If set, incoming webhooks must
+    # include a matching X-Hub-Signature-256 HMAC. Leave blank in dev.
+    GITHUB_WEBHOOK_SECRET: str = ""
 
-    # ── OpenAI ────────────────────────────────────────
+    # ── Slack integration ──
+    # Get these from api.slack.com after creating an app for RepoInsight.
+    # All optional in dev — feature simply becomes unavailable if unset.
+    SLACK_CLIENT_ID: str = ""
+    SLACK_CLIENT_SECRET: str = ""
+    SLACK_SIGNING_SECRET: str = ""
+
+    # Backend URL is used to construct the OAuth redirect URI for Slack.
+    # Default suits local dev; production deploys should override via env.
+    BACKEND_URL: str = "http://localhost:8000"
+
+    # ── OpenAI (optional fallback) ────────────────────────
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+
+    # ── Anthropic Claude (preferred) ──────────────────────
+    ANTHROPIC_API_KEY: str = ""
+    # Default model — used for prose-heavy features (docs, onboarding guide).
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-6"
+    # Fast model — used for short structured outputs (audit, security scan,
+    # task generation, architecture diagram). Roughly 3-5x faster than Sonnet
+    # on the kind of token volumes those features produce.
+    ANTHROPIC_HAIKU_MODEL: str = "claude-haiku-4-5-20251001"
 
     # ── Chroma ────────────────────────────────────────
     CHROMA_HOST: str = "chroma"

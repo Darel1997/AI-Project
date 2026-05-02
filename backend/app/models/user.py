@@ -24,6 +24,9 @@ class User(Base):
     github_access_token = Column(Text, nullable=True)  # encrypted in prod
 
     is_active = Column(Boolean, default=True)
+    # Owner flag — overrides every tier gate. Set manually via SQL for your own account:
+    #   UPDATE users SET is_owner = TRUE WHERE email = 'you@example.com';
+    is_owner = Column(Boolean, default=False, nullable=False, server_default="false")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime(timezone=True),

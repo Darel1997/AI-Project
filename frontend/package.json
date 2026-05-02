@@ -6,25 +6,37 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:chromium": "playwright test --project=chromium",
+    "test:e2e:install": "playwright install --with-deps chromium webkit",
+    "test:unit": "vitest",
+    "test:unit:run": "vitest run"
   },
   "dependencies": {
     "next": "14.2.21",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "recharts": "^2.15.0",
-    "react-markdown": "^9.0.1",
-    "lucide-react": "^0.468.0",
-    "clsx": "^2.1.1"
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.15.0",
+    "react-markdown": "9.0.1",
+    "lucide-react": "0.468.0",
+    "clsx": "2.1.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "@types/react": "^18.3.0",
-    "typescript": "^5.7.0",
-    "tailwindcss": "^3.4.17",
-    "postcss": "^8.4.49",
-    "autoprefixer": "^10.4.20",
-    "eslint": "^9.0.0",
-    "eslint-config-next": "14.2.21"
+    "@types/node": "22.10.0",
+    "@types/react": "18.3.0",
+    "typescript": "5.7.2",
+    "tailwindcss": "3.4.17",
+    "postcss": "8.4.49",
+    "autoprefixer": "10.4.20",
+    "eslint": "9.27.0",
+    "eslint-config-next": "14.2.21",
+    "@playwright/test": "1.49.1",
+    "vitest": "2.1.8",
+    "@vitest/ui": "2.1.8",
+    "@testing-library/react": "16.1.0",
+    "@testing-library/jest-dom": "6.6.3",
+    "jsdom": "25.0.1"
   }
 }

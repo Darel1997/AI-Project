@@ -1,11 +1,10 @@
 """
 Embedding / RAG pipeline service.
 
-Handles the full retrieval-augmented generation flow:
-1. Chunk source files into overlapping segments
-2. Generate embeddings via OpenAI
-3. Store vectors in ChromaDB
-4. Query the vector store for relevant context
+Uses a LOCAL embedding model (all-MiniLM-L6-v2) via sentence-transformers.
+This runs entirely on your machine — no API key, no cost, no rate limits.
+
+The model is ~80MB and downloads automatically on first use.
 """
 
 import logging
@@ -13,7 +12,7 @@ import hashlib
 from typing import List
 
 import chromadb
-from openai import OpenAI
+from sentence_transformers import SentenceTransformer
 
 from app.core.config import settings
 
@@ -21,22 +20,65 @@ logger = logging.getLogger("repoinsight.embedding")
 
 # file extensions we consider "source code" worth indexing
 INDEXABLE_EXTENSIONS = {
-    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs", ".rb",
-    ".cpp", ".c", ".h", ".hpp", ".cs", ".php", ".swift", ".kt", ".scala",
-    ".sql", ".sh", ".bash", ".yaml", ".yml", ".toml", ".json", ".md",
-    ".html", ".css", ".scss", ".vue", ".svelte", ".tf", ".dockerfile",
+    # Programming languages
+    ".py", ".pyi", ".pyx", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
+    ".java", ".kt", ".kts", ".scala", ".groovy",
+    ".go", ".rs", ".rb", ".erb",
+    ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".hxx", ".ino",
+    ".cs", ".vb", ".fs", ".fsx",
+    ".php", ".phtml",
+    ".swift", ".m", ".mm",
+    ".pl", ".pm", ".t",
+    ".r", ".R", ".jl",
+    ".lua", ".ex", ".exs", ".elm", ".erl", ".hrl", ".clj", ".cljs", ".cljc",
+    ".hs", ".lhs", ".ml", ".mli", ".nim", ".v", ".zig", ".dart",
+    # Web / markup / style
+    ".html", ".htm", ".xml", ".svg", ".css", ".scss", ".sass", ".less",
+    ".vue", ".svelte", ".astro",
+    # Config / data
+    ".sql", ".graphql", ".gql", ".proto",
+    ".yaml", ".yml", ".toml", ".json", ".jsonc", ".json5", ".ini", ".cfg", ".conf", ".env",
+    # Shell / scripts
+    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
+    # Infra / devops
+    ".tf", ".tfvars", ".hcl", ".dockerfile", ".dockerignore",
+    ".nix", ".bazel", ".bzl",
+    # Documentation / prose
+    ".md", ".mdx", ".markdown", ".rst", ".txt", ".adoc",
+    # Misc
+    ".makefile", ".mk", ".gradle", ".sbt", ".cmake",
 }
 
-# max lines per chunk, with overlap
+# Also match these filenames directly (no extension or unusual names)
+INDEXABLE_FILENAMES = {
+    "dockerfile", "makefile", "rakefile", "gemfile", "procfile",
+    "jenkinsfile", "vagrantfile", "cmakelists.txt",
+    "readme", "license", "notice", "changelog", "authors", "contributors",
+    ".gitignore", ".dockerignore", ".editorconfig", ".prettierrc", ".eslintrc",
+    ".babelrc", ".npmrc", ".env",
+}
+
 CHUNK_SIZE = 60
 CHUNK_OVERLAP = 10
+
+# singleton so we only load the model once across all workers
+_model = None
+
+
+def _get_model() -> SentenceTransformer:
+    """Lazy-load the embedding model (downloads ~80MB on first run)."""
+    global _model
+    if _model is None:
+        logger.info("Loading local embedding model (all-MiniLM-L6-v2)...")
+        _model = SentenceTransformer("all-MiniLM-L6-v2")
+        logger.info("Embedding model loaded.")
+    return _model
 
 
 class EmbeddingService:
     """Manages the vector store for a single repository."""
 
     def __init__(self):
-        self.openai = OpenAI(api_key=settings.OPENAI_API_KEY)
         self.chroma = chromadb.HttpClient(
             host=settings.CHROMA_HOST,
             port=settings.CHROMA_PORT,
@@ -55,16 +97,23 @@ class EmbeddingService:
 
     @staticmethod
     def should_index(file_path: str) -> bool:
-        """Decides whether a file is worth embedding based on its extension."""
         lower = file_path.lower()
-        return any(lower.endswith(ext) for ext in INDEXABLE_EXTENSIONS)
+        filename = lower.rsplit("/", 1)[-1]
+        # 1) Match by extension
+        if any(lower.endswith(ext) for ext in INDEXABLE_EXTENSIONS):
+            return True
+        # 2) Match by exact filename (e.g. Dockerfile, Makefile)
+        if filename in INDEXABLE_FILENAMES:
+            return True
+        # 3) Strip version suffix and retry (e.g. "README", "Dockerfile.prod")
+        if "." in filename:
+            stem = filename.split(".")[0]
+            if stem in INDEXABLE_FILENAMES:
+                return True
+        return False
 
     @staticmethod
     def chunk_file(content: str, file_path: str) -> List[dict]:
-        """
-        Splits a source file into overlapping line-based chunks.
-        Each chunk carries metadata about its position in the file.
-        """
         lines = content.split("\n")
         chunks = []
         start = 0
@@ -74,7 +123,6 @@ class EmbeddingService:
             chunk_lines = lines[start:end]
             chunk_text = "\n".join(chunk_lines)
 
-            # skip near-empty chunks
             if len(chunk_text.strip()) < 20:
                 start = end
                 continue
@@ -98,27 +146,20 @@ class EmbeddingService:
 
         return chunks
 
-    # ── Embedding ─────────────────────────────────────────────────
+    # ── Embedding (LOCAL — free, no API key) ──────────────────────
 
     def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Batch-generate embeddings via OpenAI."""
+        """Generate embeddings using the local sentence-transformers model."""
         if not texts:
             return []
 
-        # OpenAI supports batches of up to ~2048 in one call
-        response = self.openai.embeddings.create(
-            input=texts,
-            model=settings.OPENAI_EMBEDDING_MODEL,
-        )
-        return [item.embedding for item in response.data]
+        model = _get_model()
+        embeddings = model.encode(texts, show_progress_bar=False, normalize_embeddings=True)
+        return embeddings.tolist()
 
     # ── Indexing ──────────────────────────────────────────────────
 
     def index_file(self, repo_id: int, file_path: str, content: str) -> int:
-        """
-        Chunks a file, embeds it, and upserts into ChromaDB.
-        Returns the number of chunks stored.
-        """
         chunks = self.chunk_file(content, file_path)
         if not chunks:
             return 0
@@ -129,8 +170,8 @@ class EmbeddingService:
         ids = [c["id"] for c in chunks]
         metadatas = [c["metadata"] for c in chunks]
 
-        # embed in batches of 100 to stay within API limits
-        batch_size = 100
+        # embed in batches
+        batch_size = 64
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i:i + batch_size]
             batch_ids = ids[i:i + batch_size]
@@ -150,10 +191,6 @@ class EmbeddingService:
     # ── Querying ──────────────────────────────────────────────────
 
     def query(self, repo_id: int, question: str, top_k: int = 8) -> List[dict]:
-        """
-        Finds the most relevant code chunks for a natural-language question.
-        Returns a list of {text, metadata, relevance} dicts.
-        """
         collection = self._get_or_create_collection(repo_id)
 
         query_embedding = self.generate_embeddings([question])[0]
@@ -174,7 +211,7 @@ class EmbeddingService:
                 hits.append({
                     "text": doc,
                     "metadata": meta,
-                    "relevance": round(1 - dist, 4),  # cosine distance → similarity
+                    "relevance": round(1 - dist, 4),
                 })
 
         return hits
@@ -182,7 +219,6 @@ class EmbeddingService:
     # ── Cleanup ───────────────────────────────────────────────────
 
     def delete_collection(self, repo_id: int):
-        """Removes all vectors for a repository."""
         try:
             self.chroma.delete_collection(self._collection_name(repo_id))
             logger.info(f"Deleted vector collection for repo {repo_id}")

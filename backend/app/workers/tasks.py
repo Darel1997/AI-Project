@@ -17,6 +17,7 @@ import os
 from celery import Celery
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from app.services.quality_score import compute_quality_score
 
 logger = logging.getLogger("repoinsight.worker")
 
@@ -50,26 +51,69 @@ def index_repository(self, repo_id: int, user_github_token: str):
     """
     Background task: fetches all files from GitHub,
     chunks + embeds them into ChromaDB, updates Postgres.
+
+    Performance design:
+      - Filter by should_index() BEFORE any network call (skip images, binaries, lockfiles)
+      - Use GitHub's Git Blobs API (tree SHA → blob SHA → raw content) instead of
+        the slower contents API that requires a separate call per file
+      - Commit Postgres every 10 files, not every file (90% fewer round-trips)
+      - Preload the embedding model ONCE at task start so the first file isn't slow
+      - Emit Celery progress on every file so the frontend progress bar moves
     """
+    import base64
     import httpx
     from app.services.embedding_service import EmbeddingService
+    # Force-register all FK target tables with SQLAlchemy's metadata. Even though
+    # this task only writes Repository/RepoFile, SQLAlchemy resolves foreign keys
+    # at flush time — so if 'organizations' isn't in the registry when we commit,
+    # the repositories.organization_id FK fails with NoReferencedTableError.
+    from app.models.user import User  # noqa: F401
+    from app.models.organization import Organization, Membership, Invitation  # noqa: F401
+    from app.models.subscription import Subscription  # noqa: F401
+    from app.models.chat import ChatMessage, Task  # noqa: F401
     from app.models.repository import Repository, RepoFile
 
     session = SyncSession()
     embedding_svc = EmbeddingService()
 
     try:
+        # ── Preload embedding model ──
+        # The first call to generate_embeddings() triggers a 30-60s model download
+        # on a fresh container. Doing it here (BEFORE we mark status='indexing')
+        # means the user's UI doesn't show "indexing 0/127" for a minute
+        # while the model warms up.
+        logger.info(f"[repo {repo_id}] warming embedding model…")
+        embedding_svc.generate_embeddings(["warmup"])
+        logger.info(f"[repo {repo_id}] model ready")
+
         repo = session.query(Repository).filter(Repository.id == repo_id).one()
         repo.index_status = "indexing"
         session.commit()
 
         owner, name = repo.full_name.split("/")
-        headers = {
-            "Authorization": f"Bearer {user_github_token}",
-            "Accept": "application/vnd.github+json",
-        }
+        headers = {"Accept": "application/vnd.github+json"}
+        if user_github_token:
+            headers["Authorization"] = f"Bearer {user_github_token}"
 
-        # fetch file tree
+        # ── Refresh repo metadata ──
+        try:
+            meta_resp = httpx.get(
+                f"https://api.github.com/repos/{owner}/{name}",
+                headers=headers,
+                timeout=15,
+            )
+            if meta_resp.status_code == 200:
+                meta = meta_resp.json()
+                repo.stars = meta.get("stargazers_count", repo.stars)
+                repo.forks = meta.get("forks_count", repo.forks)
+                repo.open_issues = meta.get("open_issues_count", repo.open_issues)
+                repo.description = meta.get("description", repo.description)
+                repo.language = meta.get("language", repo.language)
+                session.commit()
+        except Exception as e:
+            logger.warning(f"Could not refresh repo metadata: {e}")
+
+        # ── Fetch full tree (one call) ──
         tree_resp = httpx.get(
             f"https://api.github.com/repos/{owner}/{name}/git/trees/{repo.default_branch}",
             headers=headers,
@@ -78,36 +122,70 @@ def index_repository(self, repo_id: int, user_github_token: str):
         )
         tree_resp.raise_for_status()
         tree = tree_resp.json().get("tree", [])
-        blobs = [item for item in tree if item["type"] == "blob"]
+        all_blobs = [item for item in tree if item["type"] == "blob"]
 
-        repo.total_files = len(blobs)
+        # Filter BEFORE fetching — skip images, binaries, minified bundles, lockfiles
+        indexable_blobs = [
+            b for b in all_blobs
+            if EmbeddingService.should_index(b["path"]) and b.get("size", 0) <= 2_000_000
+        ]
+        repo.total_files = len(indexable_blobs)
         session.commit()
 
+        logger.info(
+            f"[repo {repo_id}] tree has {len(all_blobs)} blobs, {len(indexable_blobs)} indexable"
+        )
+
+        # Emit an initial progress update so the frontend bar moves off 0 immediately
+        self.update_state(
+            state="INDEXING",
+            meta={"indexed": 0, "total": len(indexable_blobs), "stage": "fetching"},
+        )
+
+        # ── Fetch + embed each file ──
         indexed = 0
-        for item in blobs:
+        commit_batch = 0
+        COMMIT_EVERY = 10
+
+        for item in indexable_blobs:
             path = item["path"]
-            if not EmbeddingService.should_index(path):
+            blob_sha = item.get("sha")
+            if not blob_sha:
                 continue
 
-            # download raw content
-            content_resp = httpx.get(
-                f"https://api.github.com/repos/{owner}/{name}/contents/{path}",
-                headers={**headers, "Accept": "application/vnd.github.raw+json"},
-                timeout=20,
-            )
-            if content_resp.status_code != 200 or len(content_resp.content) > 500_000:
-                continue
-
+            # Fetch blob by SHA (faster than /contents/ and works for any path,
+            # including ones with special chars). Returns base64 content by default.
             try:
-                content = content_resp.text
-            except UnicodeDecodeError:
+                blob_resp = httpx.get(
+                    f"https://api.github.com/repos/{owner}/{name}/git/blobs/{blob_sha}",
+                    headers=headers,
+                    timeout=20,
+                )
+                if blob_resp.status_code != 200:
+                    continue
+                blob_data = blob_resp.json()
+                encoded = blob_data.get("content", "")
+                encoding = blob_data.get("encoding", "base64")
+
+                if encoding == "base64":
+                    raw = base64.b64decode(encoded)
+                else:
+                    raw = encoded.encode() if isinstance(encoded, str) else encoded
+
+                try:
+                    content = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    # Binary or non-UTF-8 — skip silently
+                    continue
+            except Exception as e:
+                logger.warning(f"[repo {repo_id}] fetch blob failed {path}: {e}")
                 continue
 
             lines = content.count("\n") + 1
             filename = path.split("/")[-1]
             ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
 
-            # save file record to Postgres
+            # Upsert file record (no commit yet — batched below)
             repo_file = RepoFile(
                 repository_id=repo_id,
                 path=path,
@@ -116,38 +194,48 @@ def index_repository(self, repo_id: int, user_github_token: str):
                 size_bytes=len(content.encode()),
                 line_count=lines,
                 content=content,
-                sha=item.get("sha"),
+                sha=blob_sha,
                 is_embedded=False,
             )
             session.add(repo_file)
             session.flush()
 
-            # chunk + embed into ChromaDB
+            # Embed into ChromaDB
             try:
                 chunk_count = embedding_svc.index_file(repo_id, path, content)
                 if chunk_count > 0:
                     repo_file.is_embedded = True
                     indexed += 1
             except Exception as e:
-                logger.warning(f"Failed to embed {path}: {e}")
+                logger.warning(f"[repo {repo_id}] embed failed {path}: {e}")
 
-            repo.indexed_files = indexed
-            session.commit()
+            commit_batch += 1
+            # Commit every N files — ~90% fewer round trips to Postgres than
+            # committing after each file. The occasional lost-in-crash file is
+            # fine here; the user can re-trigger indexing.
+            if commit_batch >= COMMIT_EVERY:
+                repo.indexed_files = indexed
+                session.commit()
+                commit_batch = 0
 
-            # update task state for progress tracking
+            # Update progress on every file — cheap and keeps the UI responsive
             self.update_state(
                 state="INDEXING",
-                meta={"indexed": indexed, "total": repo.total_files},
+                meta={"indexed": indexed, "total": len(indexable_blobs), "stage": "embedding"},
             )
 
-        # done — compute summary stats
+        # ── Done — compute summary stats ──
         repo.is_indexed = True
         repo.index_status = "done"
         repo.indexed_files = indexed
         repo.total_lines = sum(f.line_count for f in repo.files)
+        repo.health_score = compute_quality_score(repo, files=list(repo.files))
         session.commit()
 
-        logger.info(f"Finished indexing repo {repo.full_name}: {indexed} files embedded")
+        logger.info(
+            f"[repo {repo_id}] FINISHED: {indexed}/{len(indexable_blobs)} files embedded, "
+            f"health={repo.health_score:.1f}"
+        )
         return {"repo_id": repo_id, "indexed_files": indexed}
 
     except Exception as exc:
@@ -164,3 +252,5 @@ def index_repository(self, repo_id: int, user_github_token: str):
 
     finally:
         session.close()
+
+

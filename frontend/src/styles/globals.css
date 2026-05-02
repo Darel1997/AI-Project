@@ -1,52 +1,407 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────
+   BASE LAYER — Reset, accessibility, foundational styles
+   ────────────────────────────────────────────────────────────── */
+
 @layer base {
+  :root {
+    color-scheme: dark;
+    --noise-opacity: 0.35;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Respect user's reduced-motion preference — WCAG 2.3.3.
+     Two paths: the OS-level media query (covers the "system" pref) and
+     the explicit data-motion="reduced" override from the Settings page. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+  html[data-motion="reduced"] *,
+  html[data-motion="reduced"] *::before,
+  html[data-motion="reduced"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Font-size accessibility scale.
+     Modifying the root font-size cascades into every rem-based unit, so all
+     paddings, line-heights, and breakpoints scale proportionally — exactly
+     what users with low vision need. WCAG 1.4.4 (Resize text) target 200%
+     is a stretch goal; we hit 125% / 150% comfortably here. */
+  html[data-font-size="default"]     { font-size: 16px; }
+  html[data-font-size="large"]       { font-size: 18px; }
+  html[data-font-size="extra-large"] { font-size: 20px; }
+
+  /* Density — tighten paddings for power users who want to fit more on screen. */
+  html[data-density="compact"] {
+    --space-scale: 0.85;
+  }
+  html[data-density="compact"] .card,
+  html[data-density="compact"] .card-glass,
+  html[data-density="compact"] .card-hover {
+    padding: calc(1.5rem * var(--space-scale, 1));
+  }
+
+  /* High-contrast mode boosts text and border opacity for users with low
+     contrast sensitivity. WCAG 1.4.6 (Enhanced Contrast) targets 7:1 ratios.
+     We do this by overriding the muted/secondary text colors back toward the
+     primary token, and thickening default borders. */
+  html[data-contrast="high"] {
+    --tw-prose-body: rgb(255 255 255);
+  }
+  html[data-contrast="high"] .text-text-secondary,
+  html[data-contrast="high"] .text-text-muted {
+    color: rgb(229 231 235); /* near-white — was a muted gray */
+  }
+  html[data-contrast="high"] .border-white\/5 { border-color: rgb(255 255 255 / 0.18) !important; }
+  html[data-contrast="high"] .border-white\/10 { border-color: rgb(255 255 255 / 0.25) !important; }
+  html[data-contrast="high"] .border-surface-border { border-color: rgb(255 255 255 / 0.3) !important; }
+
+  /* Light-theme tokens. The app's design is dark-by-default, but for users
+     working in bright environments or with light-sensitivity, we offer an
+     accessible light variant. We invert the surface tokens and dim the heavy
+     gradient backgrounds rather than swapping every component. */
+  html[data-theme="light"] {
+    color-scheme: light;
+    --noise-opacity: 0;  /* the noise overlay reads as dirt on light backgrounds */
+  }
+  html[data-theme="light"] body {
+    background: #fafafa;
+    color: #18181b;
+  }
+  html[data-theme="light"] .bg-surface { background-color: #ffffff !important; }
+  html[data-theme="light"] .bg-surface-overlay { background-color: #f4f4f5 !important; }
+  html[data-theme="light"] .bg-surface-overlay\/40,
+  html[data-theme="light"] .bg-surface-overlay\/60,
+  html[data-theme="light"] .bg-surface-overlay\/80 { background-color: rgb(244 244 245 / 0.8) !important; }
+  html[data-theme="light"] .bg-surface-hover { background-color: #e4e4e7 !important; }
+  html[data-theme="light"] .text-text-primary   { color: #18181b !important; }
+  html[data-theme="light"] .text-text-secondary { color: #3f3f46 !important; }
+  html[data-theme="light"] .text-text-muted     { color: #71717a !important; }
+  html[data-theme="light"] .border-white\/5,
+  html[data-theme="light"] .border-white\/10 { border-color: rgb(0 0 0 / 0.1) !important; }
+  html[data-theme="light"] .border-surface-border { border-color: rgb(0 0 0 / 0.12) !important; }
+  html[data-theme="light"] .card,
+  html[data-theme="light"] .card-glass,
+  html[data-theme="light"] .card-hover { background-color: #ffffff !important; border-color: rgb(0 0 0 / 0.08); }
+
   body {
     @apply bg-surface text-text-primary antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+    letter-spacing: -0.01em;
   }
 
-  ::selection {
-    @apply bg-accent/30 text-white;
+  /* Universal noise overlay — adds texture, kills the "flat" feel */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.08 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: var(--noise-opacity);
+    pointer-events: none;
+    z-index: 1;
+    mix-blend-mode: overlay;
   }
 
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  /* Focus-visible — clearly visible on any background */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent rounded;
+    outline-style: solid;
   }
-  ::-webkit-scrollbar-track {
-    @apply bg-transparent;
-  }
+  :focus:not(:focus-visible) { outline: none; }
+
+  ::selection { @apply bg-accent/40 text-white; }
+
+  /* Scrollbars — minimal, branded */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
   ::-webkit-scrollbar-thumb {
-    @apply bg-surface-border rounded-full;
+    background: linear-gradient(180deg, rgba(124,107,255,0.25), rgba(124,107,255,0.1));
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(124,107,255,0.5), rgba(124,107,255,0.25));
+    background-clip: padding-box;
+  }
+
+  /* Headings */
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-text-primary font-semibold;
+    text-wrap: balance;
+    letter-spacing: -0.02em;
+  }
+
+  p { text-wrap: pretty; }
+
+  /* Force-hide the Next.js dev indicator */
+  #__next-build-watcher,
+  [data-nextjs-toast],
+  [data-next-mark],
+  #__next-prerender-indicator,
+  nextjs-portal {
+    display: none !important;
+    visibility: hidden !important;
   }
 }
 
+/* ──────────────────────────────────────────────────────────────
+   COMPONENT LAYER — Reusable UI primitives
+   ────────────────────────────────────────────────────────────── */
+
 @layer components {
+  /* ── Cards ── */
   .card {
-    @apply bg-surface-raised border border-surface-border rounded-xl;
+    @apply bg-surface-raised border border-surface-border rounded-xl shadow-card transition-all duration-200 relative;
+  }
+  .card::before {
+    content: "";
+    @apply absolute inset-0 rounded-[inherit] pointer-events-none opacity-0 transition-opacity duration-300;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent 50%);
+  }
+  .card:hover::before { opacity: 1; }
+
+  .card-hover {
+    @apply card hover:border-accent/40 hover:shadow-card-hover hover:-translate-y-0.5;
+  }
+  .card-interactive {
+    @apply card-hover cursor-pointer focus-within:border-accent/50 focus-within:shadow-glow-sm;
+  }
+
+  /* Glass card — for surfaces over gradient backgrounds */
+  .card-glass {
+    @apply rounded-xl border border-white/10 transition-all duration-300 relative;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 1px 0 0 rgba(255,255,255,0.05) inset, 0 20px 60px -20px rgba(0,0,0,0.5);
+  }
+
+  /* ── Buttons — with visible focus rings, disabled states, hover glows ── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-medium rounded-lg
+           transition-all duration-200 ease-smooth select-none relative
+           disabled:opacity-50 disabled:cursor-not-allowed
+           focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+    font-feature-settings: "ss01";
   }
   .btn-primary {
-    @apply bg-accent hover:bg-accent-hover text-white font-medium px-4 py-2 rounded-lg transition-colors duration-150;
+    @apply btn text-white px-4 py-2;
+    background: linear-gradient(135deg, #7c6bff 0%, #6151f0 100%);
+    box-shadow: 0 1px 0 0 rgba(255,255,255,0.15) inset, 0 6px 20px -6px rgba(124,107,255,0.4), 0 1px 2px rgba(0,0,0,0.2);
   }
+  .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #9488ff 0%, #7c6bff 100%);
+    box-shadow: 0 1px 0 0 rgba(255,255,255,0.2) inset, 0 10px 30px -6px rgba(124,107,255,0.6), 0 1px 2px rgba(0,0,0,0.2);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active:not(:disabled) { transform: translateY(0); }
+
   .btn-secondary {
-    @apply bg-surface-overlay hover:bg-surface-border text-text-primary font-medium px-4 py-2 rounded-lg border border-surface-border transition-colors duration-150;
+    @apply btn bg-surface-overlay hover:bg-surface-hover active:bg-surface-border
+           text-text-primary border border-surface-border hover:border-text-muted
+           px-4 py-2;
+  }
+  .btn-ghost {
+    @apply btn text-text-secondary hover:text-text-primary hover:bg-surface-overlay
+           px-3 py-1.5;
   }
   .btn-danger {
-    @apply bg-danger/10 hover:bg-danger/20 text-danger font-medium px-4 py-2 rounded-lg transition-colors duration-150;
+    @apply btn bg-danger/10 hover:bg-danger/20 active:bg-danger/30
+           text-danger border border-danger/30 hover:border-danger/50
+           px-4 py-2;
   }
+  .btn-success {
+    @apply btn bg-success/10 hover:bg-success/20 text-success border border-success/30 px-4 py-2;
+  }
+
+  /* Shimmering button for hero CTAs */
+  .btn-glow {
+    @apply btn-primary relative overflow-hidden;
+  }
+  .btn-glow::after {
+    content: "";
+    @apply absolute inset-0 pointer-events-none opacity-0 transition-opacity duration-500;
+    background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.25) 50%, transparent 70%);
+    background-size: 200% 100%;
+  }
+  .btn-glow:hover::after {
+    opacity: 1;
+    animation: shimmer 1.5s linear infinite;
+  }
+
+  /* ── Form inputs ── */
   .input {
-    @apply bg-surface border border-surface-border rounded-lg px-3 py-2 text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all;
+    @apply w-full bg-surface-overlay border border-surface-border rounded-lg px-3 py-2
+           text-text-primary placeholder:text-text-muted
+           transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent
+           disabled:opacity-60 disabled:cursor-not-allowed
+           invalid:border-danger/50;
+    font-feature-settings: "ss01";
   }
+  .input-error {
+    @apply border-danger focus:border-danger focus:ring-danger/30;
+  }
+  .label {
+    @apply block text-sm font-medium text-text-primary mb-1.5;
+  }
+  .help-text {
+    @apply text-xs text-text-muted mt-1;
+  }
+
+  /* ── Badges ── */
   .badge {
-    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium;
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold
+           whitespace-nowrap;
   }
-  .badge-green { @apply badge bg-success/15 text-success; }
-  .badge-yellow { @apply badge bg-warning/15 text-warning; }
-  .badge-red { @apply badge bg-danger/15 text-danger; }
-  .badge-blue { @apply badge bg-accent/15 text-accent; }
+  .badge-green   { @apply badge bg-success-muted text-success; }
+  .badge-yellow  { @apply badge bg-warning-muted text-warning; }
+  .badge-red     { @apply badge bg-danger-muted text-danger; }
+  .badge-blue    { @apply badge bg-accent-subtle text-accent; }
+  .badge-gray    { @apply badge bg-surface-overlay text-text-secondary; }
+  .badge-violet  { @apply badge bg-violet-subtle text-violet; }
+  .badge-cyan    { @apply badge bg-cyan-subtle text-cyan; }
+  .badge-emerald { @apply badge bg-emerald-subtle text-emerald; }
+
+  /* Keyboard shortcut pills */
+  .kbd {
+    @apply inline-flex items-center justify-center min-w-[1.75rem] h-6 px-1.5
+           border rounded;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+    border-color: rgba(255,255,255,0.08);
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: rgb(176,182,195);
+    box-shadow: inset 0 -1px 0 rgba(0,0,0,0.2);
+  }
+
+  /* Section headers */
+  .section-heading {
+    @apply text-xs font-semibold uppercase tracking-[0.12em] text-text-muted;
+  }
+
+  /* Dividers */
+  .divider {
+    @apply h-px bg-gradient-to-r from-transparent via-surface-border to-transparent;
+  }
+
+  /* Loading skeleton shimmer */
+  .skeleton {
+    @apply bg-surface-overlay rounded-md overflow-hidden relative;
+    background-image: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.06) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: shimmer 1.8s linear infinite;
+  }
+
+  /* Eyebrow — used above hero-style headlines */
+  .eyebrow {
+    @apply inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium;
+    background: linear-gradient(180deg, rgba(124,107,255,0.15), rgba(124,107,255,0.05));
+    border: 1px solid rgba(124,107,255,0.25);
+    color: #b0a0ff;
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.08);
+  }
+
+  /* Status dot — animated */
+  .status-dot {
+    @apply inline-block w-1.5 h-1.5 rounded-full bg-accent relative;
+  }
+  .status-dot::after {
+    content: "";
+    @apply absolute inset-0 rounded-full bg-accent;
+    animation: pulse-ring 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   UTILITIES LAYER
+   ────────────────────────────────────────────────────────────── */
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .text-pretty  { text-wrap: pretty; }
+
+  /* Vibrant gradient text */
+  .text-gradient {
+    background: linear-gradient(135deg, #b794f4 0%, #7c6bff 50%, #22d3ee 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .text-gradient-accent {
+    background: linear-gradient(135deg, #7c6bff 0%, #b794f4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Gradient border trick */
+  .border-gradient {
+    position: relative;
+    background: rgb(14, 16, 23);
+    background-clip: padding-box;
+    border: 1px solid transparent;
+  }
+  .border-gradient::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    margin: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(124,107,255,0.5), rgba(34,211,238,0.3), rgba(183,148,244,0.4));
+  }
+
+  /* Screen reader only */
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0);
+    white-space: nowrap; border-width: 0;
+  }
+}
+
+/* Ring pulse for status dots */
+@keyframes pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.5; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+/* FeaturePanel slide-in */
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0.4; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.animate-slide-in-right {
+  animation: slide-in-right 280ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Architecture diagram (Mermaid) — keep the SVG fitting its container without overflow */
+.mermaid-diagram-content svg {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+  margin: 0 auto;
 }

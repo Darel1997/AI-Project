@@ -56,14 +56,22 @@ async def get_analytics(
     languages = await AnalyticsService.get_language_breakdown(gh, owner, name)
     total_lines = await AnalyticsService.count_total_lines(db, repo_id)
 
-    # update repo metadata
+    # update repo metadata (freshly pulled from GitHub)
     repo.total_commits = sum(c["count"] for c in commit_activity)
     repo.total_contributors = len(contributors)
     repo.total_lines = total_lines
     repo.language_breakdown = languages
 
-    # compute health score
-    health = await AnalyticsService.compute_health_score(repo)
+    # Recompute quality score using the SAME formula as the indexer.
+    # This replaces the previous bug where analytics used its own scoring
+    # and the dashboard/analytics pages disagreed on the number.
+    from app.services.quality_score import compute_quality_score
+    from app.models.repository import RepoFile
+    files_result = await db.execute(
+        select(RepoFile).where(RepoFile.repository_id == repo_id)
+    )
+    files = files_result.scalars().all()
+    health = compute_quality_score(repo, files=list(files))
     repo.health_score = health
 
     response = AnalyticsResponse(

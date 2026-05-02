@@ -43,10 +43,12 @@ async def import_repo(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Imports a GitHub repo and kicks off background indexing."""
+    """
+    Imports a GitHub repo and kicks off background indexing.
 
-    if not user.github_access_token:
-        raise HTTPException(status_code=400, detail="Connect your GitHub account first")
+    Public repos: work with no GitHub auth (uses anonymous GitHub API, rate-limited).
+    Private repos: require GitHub OAuth to be connected.
+    """
 
     # parse the URL
     try:
@@ -54,11 +56,18 @@ async def import_repo(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid GitHub repository URL")
 
-    # fetch repo info from GitHub
-    gh = GitHubService(access_token=user.github_access_token)
+    # Try to fetch — if user has a token, use it (works for private repos too)
+    # If not, try anonymous (works for public repos only, lower rate limit)
+    access_token = user.github_access_token or ""
+    gh = GitHubService(access_token=access_token)
     try:
         gh_repo = await gh.get_repo(owner, name)
     except Exception:
+        if not user.github_access_token:
+            raise HTTPException(
+                status_code=404,
+                detail="Repository not found. If this is a private repo, connect your GitHub account first.",
+            )
         raise HTTPException(status_code=404, detail="Repository not found on GitHub")
 
     # check if already imported
@@ -89,8 +98,8 @@ async def import_repo(
     await db.flush()
     await db.refresh(repo)
 
-    # kick off background indexing
-    index_repository.delay(repo.id, user.github_access_token)
+    # kick off background indexing (worker handles missing token gracefully for public repos)
+    index_repository.delay(repo.id, access_token)
 
     return RepoResponse.model_validate(repo)
 
@@ -130,14 +139,13 @@ async def reindex_repo(
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
 
-    if not user.github_access_token:
-        raise HTTPException(status_code=400, detail="GitHub token missing")
-
     repo.index_status = "pending"
     repo.indexed_files = 0
     await db.flush()
 
-    index_repository.delay(repo.id, user.github_access_token)
+    # Works for both authenticated (private repos) and anonymous (public repos)
+    access_token = user.github_access_token or ""
+    index_repository.delay(repo.id, access_token)
     return {"message": "Re-indexing started", "repo_id": repo.id}
 
 
