@@ -295,4 +295,4 @@ Contributions are welcome. Before opening a pull request:
 
 ## License
 
-[MIT](LICENSE) — do whatever you want, just don't blame us if it breaks.
+Darel 
