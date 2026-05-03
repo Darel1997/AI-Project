@@ -5,13 +5,13 @@
 **Codebase intelligence for engineering teams.**
 Index any GitHub repository, then chat with it, document it, audit it, and ship faster — all from one workspace.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-7c6bff?style=flat-square)](LICENSE)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-7c6bff?style=flat-square)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
 [![Next.js 14](https://img.shields.io/badge/Next.js-14-000?style=flat-square&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com)
 [![Built with Claude](https://img.shields.io/badge/AI-Anthropic_Claude-d97757?style=flat-square)](https://anthropic.com)
 
-[Live demo](https://repoinsight.ai) · [Documentation](docs/) · [Changelog](frontend/src/app/changelog/page.tsx) · [Report a vulnerability](#responsible-disclosure)
+[Documentation](docs/) · [Changelog](frontend/src/app/changelog/page.tsx) · [Report a vulnerability](#responsible-disclosure)
 
 </div>
 
@@ -28,8 +28,7 @@ Index any GitHub repository, then chat with it, document it, audit it, and ship 
 7. [Project layout](#project-layout)
 8. [Deployment](#deployment)
 9. [Responsible disclosure](#responsible-disclosure)
-10. [Contributing](#contributing)
-11. [License](#license)
+10. [License](#license)
 
 ---
 
@@ -283,16 +282,10 @@ If you discover a security issue, please email **security@repoinsight.ai** inste
 
 ---
 
-## Contributing
-
-Contributions are welcome. Before opening a pull request:
-
-1. Run `pytest` (backend) and `npm test` (frontend) and make sure both are green.
-2. Run `ruff check` and `npm run lint` — CI will run them anyway.
-3. Open an issue to discuss any non-trivial change before sinking serious time into it.
-
----
-
 ## License
 
-Darel 
+Proprietary. © Darel. All rights reserved.
+
+This source is published for reference only. You may not copy, modify, redistribute,
+or use this code in your own projects without explicit written permission from the
+author. See [LICENSE](LICENSE) for the full text.

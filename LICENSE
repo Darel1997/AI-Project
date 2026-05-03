@@ -1,0 +1,50 @@
+PROPRIETARY LICENSE
+
+Copyright © Darel. All rights reserved.
+
+This software and associated documentation files (the "Software") are the
+proprietary work of Darel ("the Author"). The Software is made available
+through this repository for reference and demonstration purposes only.
+
+Permitted uses
+--------------
+You MAY:
+
+  • View and read the source code in this repository.
+  • Reference small excerpts in articles, blog posts, or educational
+    material with proper attribution to the Author and a link back to
+    this repository.
+  • Run the Software locally, on your own machine, for personal evaluation.
+
+Prohibited uses
+---------------
+Without prior written permission from the Author, you MAY NOT:
+
+  • Copy, fork, or redistribute the Software, in whole or in part.
+  • Modify, adapt, translate, or create derivative works based on the
+    Software.
+  • Use the Software, or any part of it, in any commercial product,
+    service, or offering.
+  • Host or deploy the Software, or any modified version of it, for use
+    by third parties.
+  • Sublicense, sell, rent, lease, or otherwise transfer rights to the
+    Software.
+  • Remove or alter any copyright, trademark, or attribution notices.
+
+Contributions
+-------------
+This project does not accept external contributions. Pull requests, patches,
+and feature submissions from anyone other than the Author will not be
+reviewed or merged.
+
+No warranty
+-----------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For licensing inquiries, contact the Author through the repository's
+issue tracker.
