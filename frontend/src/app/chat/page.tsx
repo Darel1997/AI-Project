@@ -51,7 +51,11 @@ function ChatContent() {
   }, [selectedRepo]);
 
   useEffect(() => {
-    if (selectedRepo) chatApi.history(selectedRepo).then(setMessages).catch(() => {});
+    if (selectedRepo) {
+      chatApi.history(selectedRepo)
+        .then(page => setMessages(page.messages))
+        .catch(() => {});
+    }
   }, [selectedRepo]);
 
   useEffect(() => {
@@ -176,7 +180,11 @@ function ChatContent() {
         className="mt-4 shrink-0"
       >
         <div className="relative card p-3 focus-within:border-accent/50 focus-within:shadow-glow-sm transition-all">
+          <label htmlFor="chat-input" className="sr-only">
+            {selectedRepo ? "Ask about your codebase" : "Select a repo first"}
+          </label>
           <textarea
+            id="chat-input"
             ref={textareaRef}
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -185,6 +193,7 @@ function ChatContent() {
             disabled={!selectedRepo || sending}
             rows={1}
             className="w-full resize-none bg-transparent text-text-primary placeholder:text-text-muted focus:outline-none text-sm disabled:opacity-60 max-h-[200px]"
+            aria-busy={sending}
           />
           <div className="flex items-center justify-between pt-2 border-t border-surface-border/50 mt-2">
             <div className="flex items-center gap-3 text-xs text-text-muted">

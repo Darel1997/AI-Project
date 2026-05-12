@@ -10,8 +10,8 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://repoinsight.ai";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "RepoInsight",
-    template: "%s · RepoInsight",
+    default: "RepoInsight AI",
+    template: "%s · RepoInsight AI",
   },
   description:
     "AI-powered codebase analysis for engineering teams. Chat with your code, auto-generate documentation, scan for security issues, and onboard new developers in under 30 minutes.",

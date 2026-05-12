@@ -174,10 +174,10 @@ function PricingInner() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-surface-border">
-                    <th className="text-left px-4 sm:px-6 py-4 font-semibold">Feature</th>
-                    <th className="text-center px-4 sm:px-6 py-4 font-semibold">Free</th>
-                    <th className="text-center px-4 sm:px-6 py-4 font-semibold text-accent">Pro</th>
-                    <th className="text-center px-4 sm:px-6 py-4 font-semibold">Team</th>
+                    <th scope="col" className="text-left px-4 sm:px-6 py-4 font-semibold">Feature</th>
+                    <th scope="col" className="text-center px-4 sm:px-6 py-4 font-semibold">Free</th>
+                    <th scope="col" className="text-center px-4 sm:px-6 py-4 font-semibold text-accent">Pro</th>
+                    <th scope="col" className="text-center px-4 sm:px-6 py-4 font-semibold">Team</th>
                   </tr>
                 </thead>
                 <tbody>

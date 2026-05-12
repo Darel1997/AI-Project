@@ -550,12 +550,26 @@ async def _slack_post_message(bot_token: str, channel: str, text: str, blocks: O
 
 def _verify_slack_signature(body: bytes, signature: Optional[str], timestamp: Optional[str]) -> bool:
     """
-    Verify Slack signing-secret HMAC. Skips verification if no secret is set
-    (dev mode), but logs a loud warning. Production deployments MUST set it.
+    Verify Slack signing-secret HMAC.
+
+    Behavior when SLACK_SIGNING_SECRET is unset:
+      - In development (APP_ENV != "production"): allow but log loudly.
+        Lets local devs test the Slack flow without setting up signing.
+      - In production: refuse. A missing secret in production is almost
+        always an env-var misconfiguration, and the cost of fail-open is
+        that any internet attacker can forge Slack events into your
+        backend.
     """
     secret = getattr(settings, "SLACK_SIGNING_SECRET", "")
     if not secret:
-        log.warning("SLACK_SIGNING_SECRET not set — Slack signature verification skipped")
+        if (settings.APP_ENV or "").lower() == "production":
+            log.error(
+                "SLACK_SIGNING_SECRET not set in production — refusing Slack webhook"
+            )
+            return False
+        log.warning(
+            "SLACK_SIGNING_SECRET not set — Slack signature verification skipped (dev only)"
+        )
         return True
     if not signature or not timestamp:
         return False

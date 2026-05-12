@@ -54,10 +54,37 @@ export default function DashboardPage() {
 
   useEffect(() => { loadRepos(); }, [loadRepos]);
 
+  // While any repo is indexing, poll a LIGHTWEIGHT progress endpoint —
+  // not the full list. The full list returns 100s of KB of cached AI
+  // artifacts per row that the dashboard never displays. /progress only
+  // returns id/status/indexed/total per still-indexing repo, ~50 bytes/row.
   useEffect(() => {
-    const indexing = repoList.some(r => r.index_status === "pending" || r.index_status === "indexing");
-    if (!indexing) return;
-    const i = setInterval(loadRepos, 4000);
+    const stillIndexing = repoList.some(
+      r => r.index_status === "pending" || r.index_status === "indexing",
+    );
+    if (!stillIndexing) return;
+    const i = setInterval(async () => {
+      try {
+        const progress = await reposApi.listProgress();
+        if (progress.length === 0) {
+          // Everything's done — do one final full refresh so we pick up
+          // the freshly-populated cached fields, then stop polling.
+          await loadRepos();
+          clearInterval(i);
+          return;
+        }
+        setRepoList((prev) =>
+          prev.map((r) => {
+            const p = progress.find((x) => x.id === r.id);
+            return p
+              ? { ...r, index_status: p.index_status, indexed_files: p.indexed_files, total_files: p.total_files }
+              : r;
+          }),
+        );
+      } catch {
+        // Transient errors fine — retry on next tick.
+      }
+    }, 4000);
     return () => clearInterval(i);
   }, [repoList, loadRepos]);
 
@@ -185,18 +212,24 @@ export default function DashboardPage() {
             <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.44 9.8 8.21 11.38.6.11.82-.25.82-.57v-2C4 22 3.5 19.5 3.5 19.5 3 18.5 2 18 2 18c-1-.73.08-.72.08-.72 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5 1 .1-.78.42-1.3.76-1.6C5.62 17.6 2.66 16.6 2.66 12c0-1.3.47-2.39 1.24-3.23C3.78 8.47 3.36 7.24 4 5.6c0 0 1.01-.32 3.3 1.23A11.54 11.54 0 0112 6.34a11.54 11.54 0 014.7.49c2.29-1.55 3.29-1.23 3.29-1.23.65 1.64.24 2.87.12 3.17.77.84 1.23 1.93 1.23 3.23 0 4.62-2.97 5.6-5.78 5.9.43.37.81 1.1.81 2.22v3.3c0 .32.22.7.83.58A12 12 0 0024 12c0-6.63-5.37-12-12-12z" />
             </svg>
+            <label htmlFor="import-url" className="sr-only">
+              GitHub repository URL
+            </label>
             <input
-              type="text"
+              id="import-url"
+              type="url"
+              inputMode="url"
+              autoComplete="url"
               value={importUrl}
               onChange={e => setImportUrl(e.target.value)}
               placeholder="https://github.com/owner/repo"
               className="input w-full pl-9"
             />
           </div>
-          <button type="submit" disabled={importing || !importUrl.trim()} className="btn-glow whitespace-nowrap disabled:opacity-50">
+          <button type="submit" disabled={importing || !importUrl.trim()} aria-busy={importing} className="btn-glow whitespace-nowrap disabled:opacity-50">
             {importing ? (
               <>
-                <span className="w-3.5 h-3.5 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                <span className="w-3.5 h-3.5 border-2 border-white/50 border-t-white rounded-full animate-spin" aria-hidden="true" />
                 Analyzing…
               </>
             ) : (

@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 1440  # 24 hours
 
+    # ── Symmetric encryption for sensitive tokens at rest ──
+    # Used by app.core.crypto. Generate with: openssl rand -base64 32
+    # In production, the startup check refuses to boot without it.
+    ENCRYPTION_KEY: str = ""
+    # Comma-separated list of older keys, accepted for decryption only.
+    # Lets you rotate the primary key without invalidating existing tokens.
+    ENCRYPTION_KEY_ROTATION: str = ""
+
     # ── GitHub ────────────────────────────────────────
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
@@ -67,6 +75,16 @@ class Settings(BaseSettings):
 
     # ── Rate Limiting ─────────────────────────────────
     RATE_LIMIT_PER_MINUTE: int = 60
+    # Comma-separated list of IP addresses or CIDR blocks for the reverse
+    # proxy / load balancer in front of this service. Only requests coming
+    # from these addresses are allowed to set X-Forwarded-For. Empty list
+    # (the default) means no XFF is trusted — correct for local dev and
+    # for any deployment without a known proxy.
+    # Examples:
+    #   "127.0.0.1"         — nginx on same host
+    #   "10.0.0.0/8"        — anything in private VPC
+    #   "127.0.0.1,10.0.0.0/8"
+    TRUSTED_PROXIES: str = ""
 
     class Config:
         env_file = ".env"

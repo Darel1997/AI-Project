@@ -7,18 +7,25 @@ commit history, and contributor stats.
 """
 
 import logging
-from typing import Optional, List
-from urllib.parse import urlparse
+import secrets
+from typing import Optional, List, Tuple
+from urllib.parse import urlparse, urlencode
 
 import httpx
 
 from app.core.config import settings
+from app.core.redis import get_redis
 
 logger = logging.getLogger("repoinsight.github")
 
 GITHUB_API = "https://api.github.com"
 GITHUB_OAUTH_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+
+# How long a generated OAuth state token is valid for. Long enough for a
+# slow human to complete consent, short enough that abandoned flows don't
+# pile up in Redis or extend a CSRF attack window.
+OAUTH_STATE_TTL_SECONDS = 600  # 10 minutes
 
 
 class GitHubService:
@@ -35,13 +42,58 @@ class GitHubService:
     # ── OAuth flow ────────────────────────────────────────────────
 
     @staticmethod
-    def get_oauth_url() -> str:
-        return (
-            f"{GITHUB_OAUTH_URL}"
-            f"?client_id={settings.GITHUB_CLIENT_ID}"
-            f"&scope=repo,read:user,user:email"
-            f"&redirect_uri={settings.FRONTEND_URL}/auth/github/callback"
-        )
+    async def get_oauth_url() -> Tuple[str, str]:
+        """
+        Build the GitHub authorize URL with a fresh single-use `state`.
+
+        Returns (url, state). Callers should store the state alongside the
+        in-flight flow (we use Redis here) and verify it on callback to
+        defend against OAuth CSRF (RFC 6749 §10.12).
+
+        The state is opaque to GitHub — it just round-trips it back to us
+        on the callback URL.
+        """
+        state = secrets.token_urlsafe(32)
+        try:
+            redis = await get_redis()
+            # The value is a marker; we only need to know the state exists
+            # and hasn't been used yet. SETEX gives single-use expiry.
+            await redis.setex(_oauth_state_key(state), OAUTH_STATE_TTL_SECONDS, "1")
+        except Exception as e:
+            # If Redis is down we still want sign-in to work, but without
+            # CSRF protection. Log loudly. In production the startup check
+            # ensures Redis is reachable.
+            logger.error("Could not persist OAuth state to Redis: %s — proceeding without CSRF protection", e)
+
+        params = {
+            "client_id": settings.GITHUB_CLIENT_ID,
+            "scope": "repo,read:user,user:email",
+            "redirect_uri": f"{settings.FRONTEND_URL}/auth/github/callback",
+            "state": state,
+        }
+        url = f"{GITHUB_OAUTH_URL}?{urlencode(params)}"
+        return url, state
+
+    @staticmethod
+    async def consume_oauth_state(state: str) -> bool:
+        """
+        Verify that `state` was issued by `get_oauth_url` and hasn't been
+        used yet. Returns True if valid; deletes the key as a side effect
+        so a replay of the same callback URL doesn't pass twice.
+        """
+        if not state:
+            return False
+        try:
+            redis = await get_redis()
+            # DEL returns the number of keys removed. If the state was set,
+            # it returns 1. If it expired or never existed, 0.
+            removed = await redis.delete(_oauth_state_key(state))
+            return bool(removed)
+        except Exception as e:
+            logger.error("Could not consume OAuth state from Redis: %s", e)
+            # Fail closed when Redis is unreachable — better to make the user
+            # retry than accept an unverified callback.
+            return False
 
     @staticmethod
     async def exchange_code_for_token(code: str) -> dict:
@@ -176,3 +228,8 @@ class GitHubService:
         if len(parts) < 2:
             raise ValueError(f"Invalid GitHub repo URL: {url}")
         return parts[0], parts[1].replace(".git", "")
+
+
+def _oauth_state_key(state: str) -> str:
+    """Namespaced Redis key for an in-flight OAuth state token."""
+    return f"oauth:gh:state:{state}"
