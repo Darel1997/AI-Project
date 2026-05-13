@@ -127,8 +127,11 @@ class EmbeddingService:
                 start = end
                 continue
 
+            # MD5 is fine here — we just need a stable, fixed-length ID for
+            # the ChromaDB chunk. Not used for any security purpose.
             chunk_id = hashlib.md5(
-                f"{file_path}:{start}:{end}".encode()
+                f"{file_path}:{start}:{end}".encode(),
+                usedforsecurity=False,
             ).hexdigest()
 
             chunks.append({
