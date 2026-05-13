@@ -39,6 +39,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db, async_session
+from app.core.crypto import get_github_token
 from app.core.security import get_current_user
 from app.core.config import settings
 from app.services.feature_gate import require_feature, _user_effective_tier
@@ -157,7 +158,7 @@ async def review_pr_manually(
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
 
-    review = await _run_pr_review(repo, body.pr_number, user.github_access_token, post_to_github=False)
+    review = await _run_pr_review(repo, body.pr_number, get_github_token(user), post_to_github=False)
     return review
 
 
@@ -175,7 +176,7 @@ async def _run_pr_review_async(repo_id: int, pr_number: int):
         # Use the indexing user's token (the user who connected the repo)
         user_res = await db.execute(select(User).where(User.id == repo.user_id))
         user = user_res.scalar_one_or_none()
-        token = user.github_access_token if user else None
+        token = get_github_token(user) if user else None
     try:
         await _run_pr_review(repo, pr_number, token, post_to_github=True)
     except Exception as e:

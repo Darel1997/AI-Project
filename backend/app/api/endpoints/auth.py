@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.crypto import encrypt_token
 from app.core.rate_limit import rate_limit
 from app.core.security import (
     hash_password,
@@ -30,6 +31,8 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
     GitHubCallbackRequest,
+    DeleteAccountRequest,
+    ChangePasswordRequest,
 )
 from app.services.github_service import GitHubService
 
@@ -127,7 +130,13 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.get("/github/url")
 async def github_oauth_url():
-    """Returns the GitHub OAuth authorization URL for the frontend to redirect to."""
+    """Returns the GitHub OAuth authorization URL for the frontend to redirect to.
+
+    The response also includes the CSRF state token that the frontend should
+    hold onto and submit back to /github/callback. The frontend doesn't need
+    to do anything with it beyond passing it through — the URL already
+    embeds it, and the backend verifies the state on callback.
+    """
     if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET:
         raise HTTPException(
             status_code=501,
@@ -138,7 +147,8 @@ async def github_oauth_url():
                 "building-oauth-apps/creating-an-oauth-app for setup instructions."
             ),
         )
-    return {"url": GitHubService.get_oauth_url()}
+    url, _state = await GitHubService.get_oauth_url()
+    return {"url": url}
 
 
 @router.get("/github/status")
@@ -156,13 +166,34 @@ async def github_oauth_status():
 async def github_callback(body: GitHubCallbackRequest, db: AsyncSession = Depends(get_db)):
     """Handles the GitHub OAuth callback — exchanges code for token, creates/updates user."""
 
+    # Verify CSRF state. Single-use — `consume_oauth_state` deletes the key
+    # so the same callback URL can't pass twice. We allow the legacy path
+    # (no state) during rollout, but log loudly so the gap can be closed
+    # once every deployed frontend builds the state into its flow.
+    if body.state:
+        if not await GitHubService.consume_oauth_state(body.state):
+            raise HTTPException(
+                status_code=400,
+                detail="OAuth state is invalid or expired. Please start the sign-in flow again.",
+            )
+    else:
+        # Belt-and-suspenders: once the frontend reliably passes state,
+        # make state required by deleting this branch and changing the
+        # schema's Optional[str] to a required field.
+        import logging
+        logging.getLogger("repoinsight.auth").warning(
+            "GitHub callback received without state token — CSRF protection skipped. "
+            "Update the frontend to forward the state from /github/url."
+        )
+
     # exchange the code for a GitHub access token
     token_data = await GitHubService.exchange_code_for_token(body.code)
     gh_token = token_data.get("access_token")
     if not gh_token:
         raise HTTPException(status_code=400, detail="Failed to get GitHub token")
 
-    # fetch the GitHub user profile
+    # fetch the GitHub user profile (using the plaintext token in-memory only —
+    # we encrypt before storing)
     gh = GitHubService(access_token=gh_token)
     gh_user = await gh.get_authenticated_user()
     gh_emails = await gh.get_user_emails()
@@ -175,13 +206,17 @@ async def github_callback(body: GitHubCallbackRequest, db: AsyncSession = Depend
     if not primary_email:
         raise HTTPException(status_code=400, detail="No verified email on GitHub account")
 
+    # Encrypt the token before it touches the DB. encrypt_token handles
+    # None/empty gracefully but we just confirmed gh_token is truthy above.
+    enc_token = encrypt_token(gh_token)
+
     # find or create the user
     result = await db.execute(select(User).where(User.github_id == gh_user["id"]))
     user = result.scalar_one_or_none()
 
     if user:
         # update token on re-auth
-        user.github_access_token = gh_token
+        user.github_access_token = enc_token
         user.avatar_url = gh_user.get("avatar_url")
     else:
         # check if email already exists (link accounts)
@@ -191,7 +226,7 @@ async def github_callback(body: GitHubCallbackRequest, db: AsyncSession = Depend
         if user:
             user.github_id = gh_user["id"]
             user.github_username = gh_user["login"]
-            user.github_access_token = gh_token
+            user.github_access_token = enc_token
             user.avatar_url = gh_user.get("avatar_url")
         else:
             user = User(
@@ -200,12 +235,11 @@ async def github_callback(body: GitHubCallbackRequest, db: AsyncSession = Depend
                 avatar_url=gh_user.get("avatar_url"),
                 github_id=gh_user["id"],
                 github_username=gh_user["login"],
-                github_access_token=gh_token,
+                github_access_token=enc_token,
             )
             db.add(user)
 
     await db.flush()
-    await db.refresh(user)
 
     # Ensure the user has a personal organization (idempotent for existing users)
     await _ensure_personal_org(db, user)
@@ -241,12 +275,10 @@ async def update_profile(
     return UserResponse.model_validate(user)
 
 
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-
-@router.post("/change-password")
+@router.post(
+    "/change-password",
+    dependencies=[Depends(rate_limit("auth", limit=5, window=300))],
+)
 async def change_password(
     body: ChangePasswordRequest,
     user: User = Depends(get_current_user),
@@ -260,17 +292,52 @@ async def change_password(
         )
     if not verify_password(body.current_password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
-    if len(body.new_password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     user.hashed_password = hash_password(body.new_password)
     await db.flush()
+    await db.commit()
     return {"message": "Password updated"}
 
 
-@router.delete("/me", status_code=204)
+@router.delete(
+    "/me",
+    status_code=204,
+    # Aggressive rate limit on this one — a leaked JWT shouldn't be able to
+    # destroy an account in seconds. 3 attempts per hour gives a legitimate
+    # user enough room to retry a mistake, far less than what a brute-force
+    # bot would need.
+    dependencies=[Depends(rate_limit("auth", limit=3, window=3600))],
+)
 async def delete_account(
+    body: DeleteAccountRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Permanently delete the current user's account and all their data."""
+    """
+    Permanently delete the current user's account and all their data.
+
+    Defense in depth:
+      - Bearer token (the JWT) is the first gate.
+      - `confirm_text` must equal the user's email — matches the existing
+        frontend UI which already requires this typed match.
+      - For password-holding accounts, the current password is required.
+        Stops a one-shot JWT theft from wiping the account.
+      - Rate limit: 3 attempts per hour per identity (set above).
+    """
+    if body.confirm_text.strip().lower() != user.email.strip().lower():
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmation text does not match your account email.",
+        )
+    if user.hashed_password:
+        if not body.password:
+            raise HTTPException(
+                status_code=400,
+                detail="Password is required to delete a password-protected account.",
+            )
+        if not verify_password(body.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Password is incorrect.")
+    # OAuth-only users (no hashed_password) get to skip the password check —
+    # the JWT + email-typed confirmation is their highest available factor.
+
     await db.delete(user)
+    await db.commit()

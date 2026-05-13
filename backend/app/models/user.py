@@ -21,7 +21,12 @@ class User(Base):
     # GitHub OAuth fields
     github_id = Column(Integer, unique=True, nullable=True, index=True)
     github_username = Column(String(100), nullable=True)
-    github_access_token = Column(Text, nullable=True)  # encrypted in prod
+    # Encrypted at rest via app.core.crypto. Always go through
+    # encrypt_token() / decrypt_token() when writing or reading this column —
+    # never assign a plaintext token directly. Legacy rows containing
+    # plaintext are read back unchanged until a future OAuth refresh
+    # re-saves them encrypted (or the migrate_encrypt_tokens script runs).
+    github_access_token = Column(Text, nullable=True)
 
     is_active = Column(Boolean, default=True)
     # Owner flag — overrides every tier gate. Set manually via SQL for your own account:

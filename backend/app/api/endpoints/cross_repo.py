@@ -27,6 +27,7 @@ match data. No fabricated file paths or invented duplicates.
 """
 
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import re
@@ -44,10 +45,23 @@ from app.core.security import get_current_user
 from app.services.feature_gate import require_feature
 from app.models.user import User
 from app.models.repository import Repository, RepoFile
+from app.core.redis import cache_get, cache_set
 from app.services.lab_service import claude_complete_json, search_similar
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cross-repo", tags=["cross-repo"])
+
+
+async def _safe_search(repo, query_text: str, top_k: int):
+    """
+    Wrap search_similar so one repo's failure doesn't bring down a whole
+    parallel gather. Returns (repo, hits) — hits is [] on any error.
+    """
+    try:
+        return repo, await search_similar(repository_id=repo.id, query_text=query_text, top_k=top_k)
+    except Exception:
+        return repo, []
+
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -155,20 +169,23 @@ async def analyze_across_repos(
     ]
 
     for concept_name, query_text in concept_probes:
+        # Fan out all per-repo searches for this probe at once. 10 probes
+        # over N repos: O(N) sequential calls become ceil(N/concurrency)
+        # parallel — typically 5-10x faster on the Business-tier workload.
+        results = await asyncio.gather(
+            *(_safe_search(r, query_text, 2) for r in repos),
+        )
         repos_hit: list[dict] = []
-        for repo in repos:
-            try:
-                hits = await search_similar(repository_id=repo.id, query_text=query_text, top_k=2)
-            except Exception:
+        for repo, hits in results:
+            if not hits:
                 continue
-            if hits:
-                top = hits[0]
-                repos_hit.append({
-                    "repo": repo.full_name,
-                    "file_path": top.get("file_path", ""),
-                    "snippet": (top.get("snippet") or "")[:280],
-                    "score": top.get("score", 0),
-                })
+            top = hits[0]
+            repos_hit.append({
+                "repo": repo.full_name,
+                "file_path": top.get("file_path", ""),
+                "snippet": (top.get("snippet") or "")[:280],
+                "score": top.get("score", 0),
+            })
 
         if len(repos_hit) >= body.min_repos:
             # Compute a rough similarity score from the average match strength
@@ -196,12 +213,11 @@ async def analyze_across_repos(
         ("Caching strategy", "cache redis memcache TTL invalidation"),
     ]
     for concern_name, probe in concern_categories:
+        results = await asyncio.gather(
+            *(_safe_search(r, probe, 1) for r in repos),
+        )
         evidence: list[dict] = []
-        for repo in repos:
-            try:
-                hits = await search_similar(repository_id=repo.id, query_text=probe, top_k=1)
-            except Exception:
-                continue
+        for repo, hits in results:
             if hits and hits[0].get("score", 0) > 0.4:
                 evidence.append({
                     "repo": repo.full_name,

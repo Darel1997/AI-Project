@@ -25,6 +25,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import JSONResponse, Response
 import uuid
 
@@ -70,6 +71,16 @@ def _assert_production_safety() -> None:
         )
     if settings.DEBUG:
         problems.append("DEBUG=true is unsafe in production. Set DEBUG=false.")
+    if not settings.ENCRYPTION_KEY or len(settings.ENCRYPTION_KEY) < 32:
+        problems.append(
+            "ENCRYPTION_KEY is missing or too short. Sensitive tokens (GitHub OAuth) "
+            "would be stored in plaintext. Generate one with: openssl rand -base64 32"
+        )
+    if (settings.SLACK_CLIENT_ID or settings.SLACK_CLIENT_SECRET) and not settings.SLACK_SIGNING_SECRET:
+        problems.append(
+            "Slack OAuth is configured but SLACK_SIGNING_SECRET is missing. "
+            "Webhook signature verification would be disabled."
+        )
 
     if problems:
         msg = "Refusing to start in production with insecure config:\n  - " + "\n  - ".join(problems)
@@ -210,6 +221,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 # Add in the order described above. Body size limit FIRST so we add it last.
+# GZip the response after all other middleware has had its say. Only
+# compresses bodies >= 1 KB — anything smaller costs more CPU to compress
+# than it saves in bandwidth. JSON payloads (the bulk of our traffic)
+# compress 5-10x so this is a big win on the polled endpoints in particular.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
@@ -225,7 +241,10 @@ app.add_middleware(
 allowed_origins = [settings.FRONTEND_URL]
 # Always permit localhost in dev/staging so engineers can run the frontend
 # locally against a deployed backend. In production we refuse to add it.
-if not IS_PRODUCTION:
+# Only DEVELOPMENT (not staging) should accept localhost origins. Staging
+# is an internet-reachable URL and accepting localhost there means a
+# malicious local server can read staging session data via CORS.
+if settings.APP_ENV.lower() == "development":
     allowed_origins.append("http://localhost:3000")
 app.add_middleware(
     CORSMiddleware,

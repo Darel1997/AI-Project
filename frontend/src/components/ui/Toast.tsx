@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -39,20 +40,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const remove = useCallback((id: number) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // Note: auto-dismiss is now handled inside ToastItem so it can pause
+  // on hover/focus per WCAG 2.2.1 (Timing Adjustable). We no longer
+  // setTimeout here at the provider level.
   const toast = useCallback((t: Omit<Toast, "id">) => {
     const id = Date.now() + Math.random();
-    const duration = t.durationMs ?? 5000;
-    setToasts(prev => [...prev, { id, ...t }]);
-    if (duration > 0) setTimeout(() => remove(id), duration);
-  }, [remove]);
+    setToasts((prev) => [...prev, { id, ...t }]);
+  }, []);
 
   const value: ToastContextValue = {
     toast,
     success: (title, description) => toast({ kind: "success", title, description }),
-    error: (title, description) => toast({ kind: "error", title, description, durationMs: 7000 }),
+    error: (title, description) =>
+      toast({ kind: "error", title, description, durationMs: 7000 }),
     info: (title, description) => toast({ kind: "info", title, description }),
     warning: (title, description) => toast({ kind: "warning", title, description }),
   };
@@ -73,10 +76,12 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
   return (
     <div
       className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
-      role="region"
+      // Each toast is already a status/alert region; dropping the wrapping
+      // role="region" prevents screen readers from announcing
+      // "Notifications region" before every toast.
       aria-label="Notifications"
     >
-      {toasts.map(t => (
+      {toasts.map((t) => (
         <ToastItem key={t.id} toast={t} onDismiss={() => onDismiss(t.id)} />
       ))}
     </div>
@@ -86,14 +91,46 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const [isLeaving, setIsLeaving] = useState(false);
 
-  const handleDismiss = () => {
+  // Default duration: 5s for normal toasts, 7s for errors (matches the
+  // previous behavior the provider used). Pass `durationMs: 0` to disable
+  // auto-dismiss for a particular toast.
+  const defaultDuration = toast.kind === "error" ? 7000 : 5000;
+  const totalDuration = toast.durationMs ?? defaultDuration;
+
+  // Track how much time is left. Pausing stops the timer; resuming starts
+  // a new one with whatever fraction remains.
+  const remainingRef = useRef(totalDuration);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startedAtRef = useRef<number>(Date.now());
+  const [paused, setPaused] = useState(false);
+
+  const handleDismiss = useCallback(() => {
     setIsLeaving(true);
+    // Match the 200ms slide-out animation before unmounting.
     setTimeout(onDismiss, 200);
-  };
+  }, [onDismiss]);
 
   useEffect(() => {
-    // Entrance animation handled via Tailwind animate-slide-up
-  }, []);
+    if (totalDuration <= 0) return;
+    if (paused) {
+      // Stop the current timer and remember how much time we still owe.
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      remainingRef.current -= Date.now() - startedAtRef.current;
+      return;
+    }
+    // Resume (or start fresh).
+    startedAtRef.current = Date.now();
+    timerRef.current = setTimeout(handleDismiss, Math.max(0, remainingRef.current));
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [paused, totalDuration, handleDismiss]);
+
+  const pause = () => setPaused(true);
+  const resume = () => setPaused(false);
 
   const styles: Record<ToastKind, { ring: string; icon: ReactNode; iconBg: string }> = {
     success: {
@@ -124,7 +161,13 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
     <div
       role={toast.kind === "error" ? "alert" : "status"}
       aria-live={toast.kind === "error" ? "assertive" : "polite"}
-      className={`pointer-events-auto card ${s.ring} shadow-card-hover p-3.5 flex items-start gap-3 transition-all duration-200 ${isLeaving ? "opacity-0 translate-x-4" : "animate-slide-up"}`}
+      onMouseEnter={pause}
+      onMouseLeave={resume}
+      onFocus={pause}
+      onBlur={resume}
+      className={`pointer-events-auto card ${s.ring} shadow-card-hover p-3.5 flex items-start gap-3 transition-all duration-200 ${
+        isLeaving ? "opacity-0 translate-x-4" : "animate-slide-up"
+      }`}
     >
       <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${s.iconBg}`}>
         {s.icon}

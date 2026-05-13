@@ -41,3 +41,13 @@ coverage/
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Playwright outputs — local test runs, never commit
+frontend/playwright-report/
+frontend/test-results/
+frontend/.playwright/
+frontend/.last-run.json
+
+# Editor / OS
+.DS_Store
+Thumbs.db

@@ -25,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.crypto import get_github_token
 from app.core.security import get_current_user
 from app.services.feature_gate import require_feature
 from app.models.user import User
@@ -94,8 +95,9 @@ async def capture_tribal_knowledge(
 
     owner, name = repo.full_name.split("/")
     headers = {"Accept": "application/vnd.github+json"}
-    if user.github_access_token:
-        headers["Authorization"] = f"Bearer {user.github_access_token}"
+    _gh_token = get_github_token(user)
+    if _gh_token:
+        headers["Authorization"] = f"Bearer {_gh_token}"
 
     months = 36 if body.include_deep_history else 12
     since = (datetime.now(timezone.utc) - timedelta(days=months * 30)).isoformat()

@@ -140,8 +140,8 @@ export const auth = {
     request<AuthResponse>("/api/auth/login", { method: "POST", body: JSON.stringify(data) }),
   githubUrl: () => request<{ url: string }>("/api/auth/github/url"),
   githubStatus: () => request<{ configured: boolean }>("/api/auth/github/status"),
-  githubCallback: (code: string) =>
-    request<AuthResponse>("/api/auth/github/callback", { method: "POST", body: JSON.stringify({ code }) }),
+  githubCallback: (code: string, state?: string) =>
+    request<AuthResponse>("/api/auth/github/callback", { method: "POST", body: JSON.stringify({ code, state }) }),
   me: () => request<User>("/api/auth/me"),
   updateProfile: (data: { full_name?: string }) =>
     request<User>("/api/auth/me", { method: "PATCH", body: JSON.stringify(data) }),
@@ -153,6 +153,16 @@ export const auth = {
 // ── Repos ─────────────────────────────────────────────
 export const repos = {
   list: () => request<RepoListResponse>("/api/repos/"),
+  // Lightweight progress poll — returns only the indexing-in-progress rows
+  // with just the columns the dashboard's progress bar needs. ~50 bytes/row
+  // vs ~10 KB/row on the full list endpoint.
+  listProgress: () =>
+    request<Array<{
+      id: number;
+      index_status: string;
+      indexed_files: number;
+      total_files: number;
+    }>>("/api/repos/progress"),
   get: (id: number) => request<Repo>(`/api/repos/${id}`),
   import: (url: string) =>
     request<Repo>("/api/repos/import", { method: "POST", body: JSON.stringify({ github_repo_url: url }) }),
@@ -193,8 +203,20 @@ export interface WebhookEnableResponse {
 export const chat = {
   send: (repoId: number, message: string) =>
     request<ChatResponse>("/api/chat/send", { method: "POST", body: JSON.stringify({ repository_id: repoId, message }) }),
-  history: (repoId: number) =>
-    request<ChatMessage[]>(`/api/chat/history/${repoId}`),
+  // History is paginated — server returns the LATEST `limit` messages
+  // (default 50, hard cap 200). To fetch older pages, pass `beforeId` =
+  // the previous page's `next_cursor`.
+  history: (repoId: number, opts?: { beforeId?: number; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (opts?.beforeId) qs.set("before_id", String(opts.beforeId));
+    if (opts?.limit) qs.set("limit", String(opts.limit));
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return request<{
+      messages: ChatMessage[];
+      has_more: boolean;
+      next_cursor: number | null;
+    }>(`/api/chat/history/${repoId}${suffix}`);
+  },
 };
 
 // ── AI ────────────────────────────────────────────────

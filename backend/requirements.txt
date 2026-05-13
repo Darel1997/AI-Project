@@ -1,7 +1,7 @@
 # ── Framework ─────────────────────────────────────────
-fastapi==0.115.6
+fastapi==0.122.0
 uvicorn[standard]==0.34.0
-python-multipart==0.0.18
+python-multipart==0.0.27
 pydantic[email]==2.10.4
 pydantic-settings==2.7.1
 
@@ -13,7 +13,11 @@ alembic==1.14.1
 greenlet==3.1.1
 
 # ── Auth ──────────────────────────────────────────────
-python-jose[cryptography]==3.3.0
+python-jose[cryptography]==3.4.0
+# Note: python-jose pins pyasn1<0.6 transitively, which has CVE-2026-30922.
+# Resolving it would require either patching python-jose or migrating to
+# PyJWT. For now this is accepted as a known and unfixable-without-rework
+# finding in the audit report.
 passlib[bcrypt]==1.7.4
 bcrypt==4.2.1
 
@@ -25,10 +29,17 @@ openai==1.59.6
 anthropic==0.42.0
 chromadb==0.5.23
 sentence-transformers==3.3.1
+# transformers is held at 4.46.x because chromadb 0.5.23 constrains
+# tokenizers<=0.20.3, which is incompatible with transformers>=4.48 (those
+# need tokenizers>=0.22). The known CVEs in 4.46.3 are in code paths this
+# app doesn't exercise (training APIs, certain model architectures).
+# To close them, upgrade chromadb to 1.x — that's a major version bump
+# and needs separate testing. Tracking issue: TODO.
+transformers==4.46.3
 
 # ── Background workers ───────────────────────────────
 celery[redis]==5.4.0
 redis==5.2.1
 
 # ── Utilities ─────────────────────────────────────────
-python-dotenv==1.0.1
+python-dotenv==1.2.2

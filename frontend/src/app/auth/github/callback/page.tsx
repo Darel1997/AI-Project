@@ -21,6 +21,7 @@ function CallbackContent() {
     // return null on first render before the URL is hydrated.
     const code = params?.get("code");
     const errParam = params?.get("error");
+    const state = params?.get("state");
 
     // GitHub itself may redirect back with ?error=access_denied if the user cancels
     if (errParam) {
@@ -47,7 +48,7 @@ function CallbackContent() {
 
     let cancelled = false;
     authApi
-      .githubCallback(code)
+      .githubCallback(code, state ?? undefined)
       .then((result) => {
         if (cancelled) return;
         login(result.access_token, result.user);
