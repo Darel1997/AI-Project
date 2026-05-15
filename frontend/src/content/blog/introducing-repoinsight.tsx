@@ -14,7 +14,7 @@ export const introducingRepoInsight: BlogPost = {
   content: () => (
     <>
       <B.Lead>
-        Every engineer has lived through the first-week-on-a-new-codebase tax. You clone the repo. You open a dozen files hoping to spot the entry point. You ping the one senior dev who knows how auth works. You read a README from two years ago that references a directory that doesn't exist anymore. By Friday, you've written 12 lines of code.
+        Every engineer has lived through the first-week-on-a-new-codebase tax. You clone the repo. You open a dozen files hoping to spot the entry point. You ping the one senior dev who knows how auth works. You read a README from two years ago that references a directory that doesn&apos;t exist anymore. By Friday, you&apos;ve written 12 lines of code.
       </B.Lead>
       <B.P>
         We built <B.Strong>RepoInsight</B.Strong> to collapse that week into 30 minutes.
@@ -36,7 +36,7 @@ export const introducingRepoInsight: BlogPost = {
 
       <B.H2>What RepoInsight does</B.H2>
       <B.P>
-        Point RepoInsight at any GitHub repository — yours or someone else's — and it does four things:
+        Point RepoInsight at any GitHub repository — yours or someone else&apos;s — and it does four things:
       </B.P>
       <B.OL>
         <B.LI>
@@ -55,11 +55,11 @@ export const introducingRepoInsight: BlogPost = {
 
       <B.H2>Why we chose Anthropic Claude</B.H2>
       <B.P>
-        Three reasons. First, Claude's context window is large enough to hold substantial slices of real codebases — we send up to a dozen files per query without truncation. Second, Claude follows instructions precisely about citation formatting, which is critical when users need to verify every claim against the source. Third, Claude is excellent at refusing to hallucinate. When the retrieval doesn't surface enough context, Claude says so instead of making up an answer — and that's the difference between a tool you trust and one you don't.
+        Three reasons. First, Claude&apos;s context window is large enough to hold substantial slices of real codebases — we send up to a dozen files per query without truncation. Second, Claude follows instructions precisely about citation formatting, which is critical when users need to verify every claim against the source. Third, Claude is excellent at refusing to hallucinate. When the retrieval doesn&apos;t surface enough context, Claude says so instead of making up an answer — and that&apos;s the difference between a tool you trust and one you don&apos;t.
       </B.P>
 
-      <B.H2>What's next</B.H2>
-      <B.P>We're just getting started. On our roadmap:</B.P>
+      <B.H2>What&apos;s next</B.H2>
+      <B.P>We&apos;re just getting started. On our roadmap:</B.P>
       <B.UL>
         <B.LI>GitHub App integration for push-triggered re-indexing — your docs update as your code updates</B.LI>
         <B.LI>Team workspaces with role-based access control</B.LI>

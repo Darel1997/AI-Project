@@ -124,7 +124,7 @@ export default function InsightsPage() {
           {unlocked && !report && (
             <div className="card p-6 space-y-4">
               <p className="text-sm text-text-secondary leading-relaxed">
-                We'll scan all your indexed repositories, looking for code that's been reimplemented in multiple places.
+                We&apos;ll scan all your indexed repositories, looking for code that&apos;s been reimplemented in multiple places.
                 The analysis is grounded in real semantic search and real manifest comparison — no fabricated suggestions.
               </p>
               <button onClick={runAnalysis} disabled={loading} className="btn-primary text-sm">

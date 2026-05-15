@@ -129,7 +129,7 @@ export default function OrgsPage() {
         </div>
       ) : orgList.length === 0 ? (
         <div className="card p-12 text-center space-y-3">
-          <p className="text-text-muted text-sm">You're not in any organizations yet.</p>
+          <p className="text-text-muted text-sm">You&apos;re not in any organizations yet.</p>
           <p className="text-text-muted text-xs">Create one above to invite teammates.</p>
         </div>
       ) : (

@@ -30,7 +30,7 @@ export default function SecurityPage() {
             Your code stays <span className="text-gradient-accent">your code</span>
           </h1>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto mt-5 text-pretty">
-            We take the security of your source code seriously. Here's exactly how we protect it, the compliance standards we meet, and the ones we're working toward.
+            We take the security of your source code seriously. Here&apos;s exactly how we protect it, the compliance standards we meet, and the ones we&apos;re working toward.
           </p>
         </section>
 
@@ -59,7 +59,7 @@ export default function SecurityPage() {
         {/* Data flow */}
         <section className="max-w-5xl mx-auto px-6 py-16" aria-labelledby="flow-heading">
           <div className="text-center mb-12">
-            <h2 id="flow-heading" className="text-display-3">Your data's journey</h2>
+            <h2 id="flow-heading" className="text-display-3">Your data&apos;s journey</h2>
             <p className="text-text-secondary mt-3 max-w-2xl mx-auto">
               Complete transparency into where your code goes and what we do with it.
             </p>
@@ -96,7 +96,7 @@ export default function SecurityPage() {
           <div className="card p-8 space-y-4">
             <h2 className="text-xl font-bold">Responsible disclosure</h2>
             <p className="text-text-secondary">
-              Found a security issue? We'd love to hear from you. Report vulnerabilities to{" "}
+              Found a security issue? We&apos;d love to hear from you. Report vulnerabilities to{" "}
               <a href="mailto:security@repoinsight.ai" className="text-accent hover:text-accent-hover underline underline-offset-4">
                 security@repoinsight.ai
               </a>
