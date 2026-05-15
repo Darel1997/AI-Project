@@ -49,7 +49,7 @@ for (const { name, path } of PUBLIC_PAGES) {
         .analyze();
 
       if (results.violations.length > 0) {
-        // Print a readable summary in CI logs so the findings are visible.
+        // Print a readable summary so the finding is easy to spot in CI logs.
         const summary = results.violations
           .map(
             (v) =>
@@ -60,16 +60,14 @@ for (const { name, path } of PUBLIC_PAGES) {
           )
           .join("\n");
         // eslint-disable-next-line no-console
-        console.warn(`\n[a11y/${name}] ${results.violations.length} violation(s):\n${summary}\n`);
+        console.log(`\n[a11y/${name}] ${results.violations.length} violation(s):\n${summary}\n`);
       }
 
-      // Soft expectation while we work through the backlog of pre-existing
-      // a11y issues (low-contrast badges, color tokens, etc.). The audit
-      // report documents what needs cleanup. Once that pass is complete,
-      // restore the strict check:
-      //   expect(results.violations).toEqual([]);
-      // For now: just assert the test ran and the scan completed.
-      expect(results).toBeDefined();
+      // Strict gate: any axe-detectable violation on a public page fails CI.
+      // If you hit this in a PR, the violation is in the log above. Fix the
+      // CSS / markup; don't loosen this check without good reason — it's
+      // the only thing keeping the public surface accessible over time.
+      expect(results.violations).toEqual([]);
     });
   });
 }
