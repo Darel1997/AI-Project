@@ -13,18 +13,18 @@ export const howWeBuiltSecurityScanner: BlogPost = {
   content: () => (
     <>
       <B.Lead>
-        If you've ever run Semgrep or Bandit on a real codebase, you know the pattern: hundreds of findings, 90% of them false positives, and the actual bugs buried in the noise. We wanted to build a scanner where the signal-to-noise ratio was flipped — few findings, most of them real.
+        If you&apos;ve ever run Semgrep or Bandit on a real codebase, you know the pattern: hundreds of findings, 90% of them false positives, and the actual bugs buried in the noise. We wanted to build a scanner where the signal-to-noise ratio was flipped — few findings, most of them real.
       </B.Lead>
 
       <B.H2>The problem with rule-based scanners</B.H2>
       <B.P>
-        Traditional SAST tools match patterns. They flag <B.Code>eval()</B.Code> calls, SQL string concatenation, hardcoded credentials. These rules catch the obvious stuff, which is good — you genuinely don't want <B.Code>eval(user_input)</B.Code> in production. But rule-based matching has two failure modes that ruin the experience at scale.
+        Traditional SAST tools match patterns. They flag <B.Code>eval()</B.Code> calls, SQL string concatenation, hardcoded credentials. These rules catch the obvious stuff, which is good — you genuinely don&apos;t want <B.Code>eval(user_input)</B.Code> in production. But rule-based matching has two failure modes that ruin the experience at scale.
       </B.P>
       <B.P>
         First, <B.Strong>false positives</B.Strong>. A rule that flags every <B.Code>exec()</B.Code> call catches genuine RCEs but also every harmless test fixture, every database migration, every CLI argument parser. The signal drowns in the noise and developers eventually disable the tool.
       </B.P>
       <B.P>
-        Second, <B.Strong>false negatives</B.Strong>. Rules miss bugs that require understanding intent. A function named <B.Code>sanitize_input()</B.Code> that does nothing isn't flagged — the rule sees a sanitizer, not the fact that it doesn't actually sanitize. A SQL query built by concatenating trusted and untrusted strings through three layers of helper functions isn't caught — the rule doesn't trace data flow across function boundaries.
+        Second, <B.Strong>false negatives</B.Strong>. Rules miss bugs that require understanding intent. A function named <B.Code>sanitize_input()</B.Code> that does nothing isn&apos;t flagged — the rule sees a sanitizer, not the fact that it doesn&apos;t actually sanitize. A SQL query built by concatenating trusted and untrusted strings through three layers of helper functions isn&apos;t caught — the rule doesn&apos;t trace data flow across function boundaries.
       </B.P>
 
       <B.H2>What AI adds</B.H2>
@@ -42,11 +42,11 @@ export const howWeBuiltSecurityScanner: BlogPost = {
       <B.P>That second one is a ticket you can hand to a junior engineer. The first is homework.</B.P>
 
       <B.H2>Our architecture</B.H2>
-      <B.P>RepoInsight's security scanner is a three-stage pipeline.</B.P>
+      <B.P>RepoInsight&apos;s security scanner is a three-stage pipeline.</B.P>
 
       <B.H3>Stage 1: targeted retrieval</B.H3>
       <B.P>
-        We don't send the whole repo to Claude. We use semantic retrieval to surface the files most likely to contain security-sensitive code: auth handlers, input parsers, database queries, crypto operations, anything that touches request bodies or file paths. Think of it as the security scanner's equivalent of a radiologist — you look at the right slices, not the whole body.
+        We don&apos;t send the whole repo to Claude. We use semantic retrieval to surface the files most likely to contain security-sensitive code: auth handlers, input parsers, database queries, crypto operations, anything that touches request bodies or file paths. Think of it as the security scanner&apos;s equivalent of a radiologist — you look at the right slices, not the whole body.
       </B.P>
 
       <B.H3>Stage 2: structured analysis</B.H3>
@@ -65,18 +65,18 @@ export const howWeBuiltSecurityScanner: BlogPost = {
 
       <B.H3>Stage 3: scoring + summary</B.H3>
       <B.P>
-        After findings, Claude produces an overall security posture score (0-100) and a paragraph-level summary describing the codebase's overall security shape. This is what teams paste into security review tickets.
+        After findings, Claude produces an overall security posture score (0-100) and a paragraph-level summary describing the codebase&apos;s overall security shape. This is what teams paste into security review tickets.
       </B.P>
 
-      <B.H2>What it doesn't do</B.H2>
+      <B.H2>What it doesn&apos;t do</B.H2>
       <B.Callout kind="info" title="Not a replacement for human review">
         <B.P>
-          RepoInsight's scanner catches a lot, but it's not a substitute for a dedicated security team, a bug bounty program, or formal penetration testing. We're explicit about this in the report output. The scanner's job is to catch the stuff that would be embarrassing to miss, not to certify production-readiness.
+          RepoInsight&apos;s scanner catches a lot, but it&apos;s not a substitute for a dedicated security team, a bug bounty program, or formal penetration testing. We&apos;re explicit about this in the report output. The scanner&apos;s job is to catch the stuff that would be embarrassing to miss, not to certify production-readiness.
         </B.P>
       </B.Callout>
 
-      <B.H2>What's next</B.H2>
-      <B.P>Three directions we're exploring:</B.P>
+      <B.H2>What&apos;s next</B.H2>
+      <B.P>Three directions we&apos;re exploring:</B.P>
       <B.UL>
         <B.LI>Dependency scanning — surfacing CVEs in direct and transitive dependencies with remediation paths</B.LI>
         <B.LI>Secret-specific scanning — integrating with tools like Gitleaks to catch secrets in git history, not just HEAD</B.LI>
@@ -86,7 +86,7 @@ export const howWeBuiltSecurityScanner: BlogPost = {
       <B.Divider />
 
       <B.P>
-        Try the security scanner on your own repo — it's free for public repositories. <B.A href="/">Get started at repoinsight.ai</B.A>.
+        Try the security scanner on your own repo — it&apos;s free for public repositories. <B.A href="/">Get started at repoinsight.ai</B.A>.
       </B.P>
     </>
   ),

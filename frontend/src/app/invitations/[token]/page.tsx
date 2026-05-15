@@ -93,7 +93,7 @@ export default function InvitationAcceptPage() {
             </svg>
           </div>
           <div>
-            <h1 className="text-xl font-semibold">You're invited to join <span className="text-accent">{info.org_name}</span></h1>
+            <h1 className="text-xl font-semibold">You&apos;re invited to join <span className="text-accent">{info.org_name}</span></h1>
             <p className="text-text-secondary text-sm mt-2">
               Invited as <span className="capitalize font-medium text-text-primary">{info.role}</span> via <span className="font-mono">{info.email}</span>
             </p>
@@ -127,7 +127,7 @@ export default function InvitationAcceptPage() {
           <div>
             <h1 className="text-lg font-semibold">Wrong account</h1>
             <p className="text-text-secondary text-sm mt-2 text-pretty">
-              This invitation was sent to <span className="font-mono text-text-primary">{info.email}</span>, but you're signed in as <span className="font-mono text-text-primary">{user.email}</span>.
+              This invitation was sent to <span className="font-mono text-text-primary">{info.email}</span>, but you&apos;re signed in as <span className="font-mono text-text-primary">{user.email}</span>.
             </p>
           </div>
           <div className="flex gap-2 justify-center flex-wrap">
@@ -153,7 +153,7 @@ export default function InvitationAcceptPage() {
         <div>
           <h1 className="text-xl font-semibold">Join <span className="text-accent">{info.org_name}</span>?</h1>
           <p className="text-text-secondary text-sm mt-2">
-            You'll join as <span className="capitalize font-medium text-text-primary">{info.role}</span> and get access to all shared repositories.
+            You&apos;ll join as <span className="capitalize font-medium text-text-primary">{info.role}</span> and get access to all shared repositories.
           </p>
         </div>
         <div className="flex gap-2 justify-center pt-2">

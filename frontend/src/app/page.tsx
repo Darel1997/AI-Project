@@ -170,7 +170,7 @@ export default function HomePage() {
               Five workflows <span className="text-gradient">no other tool has</span>
             </h2>
             <p className="text-text-secondary text-lg mt-5 max-w-2xl mx-auto">
-              Cursor ships autocomplete. Sourcegraph ships search. Copilot ships suggestions. We ship the workflows that actually solve engineering's hardest problems.
+              Cursor ships autocomplete. Sourcegraph ships search. Copilot ships suggestions. We ship the workflows that actually solve engineering&apos;s hardest problems.
             </p>
           </div>
 

@@ -99,7 +99,7 @@ export default function EnterprisePage() {
             <div className="absolute -top-20 -right-20 w-48 h-48 bg-emerald/10 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
             <div className="relative">
               <h2 className="text-xl font-bold">Compliance &amp; certifications</h2>
-              <p className="text-text-secondary text-sm mt-1">Compliance and audit roadmap below. We'll publish certifications and reports here as they're achieved.</p>
+              <p className="text-text-secondary text-sm mt-1">Compliance and audit roadmap below. We&apos;ll publish certifications and reports here as they&apos;re achieved.</p>
               <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3">
                 <Badge title="SOC 2 Type II" status="Roadmap" done={false} />
                 <Badge title="GDPR"          status="Roadmap" done={false} />
@@ -123,7 +123,7 @@ export default function EnterprisePage() {
           <div className="text-center mb-10">
             <h2 id="contact-heading" className="text-display-3">Talk to sales</h2>
             <p className="text-text-secondary mt-3 max-w-xl mx-auto">
-              Tell us about your team and how you'd use RepoInsight. We'll get back within one business day with pricing and a custom demo.
+              Tell us about your team and how you&apos;d use RepoInsight. We&apos;ll get back within one business day with pricing and a custom demo.
             </p>
           </div>
 
@@ -136,7 +136,7 @@ export default function EnterprisePage() {
               </div>
               <h3 className="text-xl font-bold">Got it — check your email</h3>
               <p className="text-text-secondary max-w-md mx-auto">
-                Your message is pre-filled in your email app. Send it to us and we'll respond within one business day.
+                Your message is pre-filled in your email app. Send it to us and we&apos;ll respond within one business day.
               </p>
             </div>
           ) : (

@@ -971,11 +971,12 @@ export function ComplianceSetup({ repoId }: { repoId: number }) {
     <div className="space-y-6">
       <div className="card-glass p-5 space-y-4">
         <p className="text-text-secondary text-sm leading-relaxed">
-          Generate an evidence package mapping your codebase against a compliance framework's controls.
+          Generate an evidence package mapping your codebase against a compliance framework&apos;s controls.
           Every claim is backed by a real file and line number from your repository.
         </p>
         <div>
-          <label className="text-[10px] uppercase tracking-wider text-text-muted font-semibold block mb-2">Framework</label>
+          {/* Section heading for the framework group below — not a real <label> since it labels a set of buttons, not one input. */}
+          <span className="text-[10px] uppercase tracking-wider text-text-muted font-semibold block mb-2">Framework</span>
           <div className="grid grid-cols-3 gap-2">
             {(["soc2", "gdpr", "hipaa"] as const).map(f => (
               <button
@@ -1290,10 +1291,11 @@ export function CodeDriftSetup({ repoId }: { repoId: number }) {
           peer files showing the established convention.
         </p>
         <div>
-          <label className="text-[10px] uppercase tracking-wider text-text-muted font-semibold block mb-2">
+          <label htmlFor="feature-results-file-paths" className="text-[10px] uppercase tracking-wider text-text-muted font-semibold block mb-2">
             File paths to analyze (one per line)
           </label>
           <textarea
+            id="feature-results-file-paths"
             value={filesText}
             onChange={e => setFilesText(e.target.value)}
             placeholder="src/api/users.py&#10;src/api/billing.py"
@@ -1634,7 +1636,7 @@ export function CostForecasterResult({ data }: { data: CostForecast }) {
           </h3>
           <div className="card p-3.5">
             <p className="text-xs text-text-muted mb-2">
-              These resources were detected but couldn't be matched to the price catalog. They may need manual estimation.
+              These resources were detected but couldn&apos;t be matched to the price catalog. They may need manual estimation.
             </p>
             <ul className="text-xs text-text-secondary space-y-1 font-mono">
               {data.unmatched_resources.map((r, i) => <li key={i}>• {r}</li>)}

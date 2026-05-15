@@ -273,7 +273,7 @@ function InviteForm({ onInvite }: { onInvite: (email: string, role: Role) => Pro
       <div>
         <h2 id="invite-heading" className="font-semibold">Invite a teammate</h2>
         <p className="text-sm text-text-secondary mt-1">
-          They'll receive an invitation link valid for 7 days.
+          They&apos;ll receive an invitation link valid for 7 days.
         </p>
       </div>
       <form onSubmit={handleSubmit} className="flex gap-2 flex-wrap sm:flex-nowrap">

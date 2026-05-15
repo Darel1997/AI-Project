@@ -424,12 +424,15 @@ export default function SettingsPage() {
 
       {/* ── Delete account modal ─────────────────────────────── */}
       {showDeleteConfirm && (
+        /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */
         <div
           className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
           role="dialog"
           aria-modal="true"
           aria-labelledby="delete-account-title"
           onClick={(e) => { if (e.target === e.currentTarget) { setShowDeleteConfirm(false); setDeleteConfirmText(""); } }}
+          onKeyDown={(e) => { if (e.key === "Escape") { setShowDeleteConfirm(false); setDeleteConfirmText(""); } }}
+          tabIndex={-1}
         >
           <div className="card shadow-card-hover p-6 max-w-md w-full space-y-4 border-danger/40 animate-scale-in">
             <div className="flex items-start gap-3">

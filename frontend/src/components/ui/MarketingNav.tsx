@@ -155,6 +155,7 @@ export function MarketingNav({ active }: { active?: string } = {}) {
       {/* Mobile drawer — only rendered when open so screen readers and
           keyboard users never see it while hidden. */}
       {mobileOpen && (
+        /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */
         <div
           ref={drawerRef}
           id="mobile-nav-drawer"
@@ -166,6 +167,8 @@ export function MarketingNav({ active }: { active?: string } = {}) {
             // Click on the backdrop (not on a child) closes the drawer.
             if (e.target === e.currentTarget) setMobileOpen(false);
           }}
+          onKeyDown={(e) => { if (e.key === "Escape") setMobileOpen(false); }}
+          tabIndex={-1}
         >
           <div className="flex flex-col h-full p-6">
             <div className="flex justify-between items-center">

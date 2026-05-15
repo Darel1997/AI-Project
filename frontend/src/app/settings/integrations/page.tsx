@@ -119,7 +119,7 @@ function IntegrationsContent() {
                     <code className="font-mono text-accent">/repoinsight pick owner/repo</code> — bind this channel to a repo
                   </li>
                   <li>
-                    <code className="font-mono text-accent">/repoinsight ask "how does billing work?"</code> — get a real answer with citations
+                    <code className="font-mono text-accent">/repoinsight ask &quot;how does billing work?&quot;</code> — get a real answer with citations
                   </li>
                   <li>
                     <code className="font-mono text-accent">@repoinsight</code> in any thread — get a reply right where the conversation is happening
@@ -136,7 +136,7 @@ function IntegrationsContent() {
                 </button>
                 {!slackStatus.install_url && (
                   <p className="text-xs text-text-muted">
-                    The Slack app isn't configured yet on this RepoInsight instance. Set{" "}
+                    The Slack app isn&apos;t configured yet on this RepoInsight instance. Set{" "}
                     <code className="font-mono">SLACK_CLIENT_ID</code>,{" "}
                     <code className="font-mono">SLACK_CLIENT_SECRET</code>, and{" "}
                     <code className="font-mono">SLACK_SIGNING_SECRET</code> in the backend environment, then restart.

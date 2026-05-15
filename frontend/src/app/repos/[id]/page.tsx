@@ -1779,7 +1779,7 @@ function WebhookPanel({ repoId, repoFullName }: { repoId: number; repoFullName: 
               </li>
               <li>Paste the <strong className="text-text-primary">Payload URL</strong> and <strong className="text-text-primary">Secret</strong> below</li>
               <li>Set <strong className="text-text-primary">Content type</strong> to <code className="bg-surface px-1.5 py-0.5 rounded text-xs font-mono">application/json</code></li>
-              <li>Choose <strong className="text-text-primary">"Just the push event"</strong></li>
+              <li>Choose <strong className="text-text-primary">&quot;Just the push event&quot;</strong></li>
               <li>Save — GitHub will send a ping event to verify</li>
             </ol>
           </div>
@@ -1792,7 +1792,7 @@ function WebhookPanel({ repoId, repoFullName }: { repoId: number; repoFullName: 
               <path d="M10 6v4M10 14h.01M9 2.5L1.5 17h17L10 2.5H9z" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <span>
-              This is the only time we'll show the secret. If you lose it, click <strong className="text-text-secondary">Rotate secret</strong> to generate a new one.
+              This is the only time we&apos;ll show the secret. If you lose it, click <strong className="text-text-secondary">Rotate secret</strong> to generate a new one.
             </span>
           </p>
         </div>
