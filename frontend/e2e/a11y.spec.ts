@@ -49,7 +49,7 @@ for (const { name, path } of PUBLIC_PAGES) {
         .analyze();
 
       if (results.violations.length > 0) {
-        // Print a readable summary in CI logs so the findings are visible.
+        // Print a readable summary so the findings are easy to spot in CI logs.
         const summary = results.violations
           .map(
             (v) =>
@@ -63,12 +63,15 @@ for (const { name, path } of PUBLIC_PAGES) {
         console.warn(`\n[a11y/${name}] ${results.violations.length} violation(s):\n${summary}\n`);
       }
 
-      // Soft expectation while we work through the backlog of pre-existing
-      // a11y issues (low-contrast badges, color tokens, etc.). The audit
-      // report documents what needs cleanup. Once that pass is complete,
-      // restore the strict check:
+      // Soft gate: axe surfaces findings in the CI log but doesn't fail the
+      // build. The codebase has a long tail of pre-existing a11y issues
+      // (color contrast on nav links, aria-prohibited-attr on floating
+      // elements, link-in-text-block in prose). Tracking them all in a
+      // dedicated cleanup pass — until that pass completes, blocking every
+      // PR on axe findings is more friction than signal.
+      //
+      // To restore strict mode after the cleanup pass:
       //   expect(results.violations).toEqual([]);
-      // For now: just assert the test ran and the scan completed.
       expect(results).toBeDefined();
     });
   });
