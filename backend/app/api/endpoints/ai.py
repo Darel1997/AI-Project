@@ -343,11 +343,16 @@ async def generate_architecture(
 ):
     """Generates a Mermaid architecture diagram of the repository."""
     repo = await _verify_repo(db, body.repository_id, user.id)
+    # 80 files is plenty for classification — the classifier buckets by path,
+    # not content, so more files = better signal, almost zero token cost.
+    # Only select the columns we actually need (skip the heavy `content` blob).
     files_result = await db.execute(
-        select(RepoFile).where(RepoFile.repository_id == body.repository_id).order_by(RepoFile.path).limit(60)
+        select(RepoFile.path, RepoFile.language)
+        .where(RepoFile.repository_id == body.repository_id)
+        .order_by(RepoFile.path)
+        .limit(80)
     )
-    files = files_result.scalars().all()
-    sample = [{"path": f.path} for f in files]
+    sample = [{"path": row.path, "language": row.language} for row in files_result.all()]
 
     ai = AIService()
     try:

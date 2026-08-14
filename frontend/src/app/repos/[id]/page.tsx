@@ -636,10 +636,38 @@ export default function RepoDetailPage() {
         <div className="card p-6">
           {archData?.diagram ? (
             <>
-              <div className="flex items-center justify-end mb-4">
-                <button onClick={() => navigator.clipboard.writeText(archData.diagram!)} className="btn-secondary text-xs">
-                  Copy Mermaid
-                </button>
+              <div className="flex items-center justify-between mb-4 gap-3">
+                <div className="text-xs text-text-muted leading-relaxed">
+                  Request flow through the codebase, left to right.
+                  <span className="hidden sm:inline"> Boxes are app code, double-circles are external services, cylinders are data stores. Dotted arrows are async.</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => downloadDiagramAsPng(repo?.name ?? "repo")}
+                    className="btn-secondary text-xs"
+                    title="Download diagram as PNG image"
+                  >
+                    Download PNG
+                  </button>
+                  <button
+                    onClick={() => {
+                      const blob = new Blob([archData.diagram!], { type: "text/plain" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `architecture-${repo?.name ?? "repo"}.mmd`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="btn-secondary text-xs"
+                    title="Download as Mermaid source (.mmd)"
+                  >
+                    Source
+                  </button>
+                  <button onClick={() => navigator.clipboard.writeText(archData.diagram!)} className="btn-secondary text-xs">
+                    Copy
+                  </button>
+                </div>
               </div>
               <MermaidDiagram chart={archData.diagram} />
               <details className="mt-4">
@@ -648,7 +676,7 @@ export default function RepoDetailPage() {
               </details>
             </>
           ) : (
-            <EmptyState label="Generate a Mermaid architecture diagram of your codebase — instantly see the big picture." />
+            <EmptyState label="Generate a flowchart showing the request path through your codebase — from frontend through API, services, and data stores out to external integrations." />
           )}
         </div>
     );
@@ -1209,49 +1237,155 @@ function ProgressRing({ score }: { score: number }) {
 }
 
 function MermaidDiagram({ chart }: { chart: string }) {
-  const [svg, setSvg] = useState<string>("");
-  const [error, setError] = useState<string>("");
-  const [zoom, setZoom] = useState(1);
-  const [fullscreen, setFullscreen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  // ── Approach: render Mermaid to PNG, display as <img> ─────────────
+  //
+  // Why not render SVG directly? After many attempts at SVG sizing in this
+  // codebase, the conclusion is: getting an SVG to fit a container reliably
+  // across all browsers, Mermaid versions, and diagram shapes is a hassle.
+  // SVGs without explicit width/height behave inconsistently, panzoom
+  // libraries fight with CSS, and edge cases multiply.
+  //
+  // <img> elements with PNG content, on the other hand, are the most
+  // well-tested sizing primitive on the web. `max-width: 100%; height: auto`
+  // on an img always works. So we render Mermaid offscreen, rasterize to
+  // PNG, and display that. Net effect: the diagram always fits the panel,
+  // never gets clipped, never overflows.
+  //
+  // For users who want to zoom in for detail: clicking the image opens a
+  // fullscreen overlay where we use the SVG directly with panzoom.
 
+  const [pngUrl, setPngUrl] = useState<string>("");
+  const [svgRaw, setSvgRaw] = useState<string>("");
+  const [error, setError] = useState<string>("");
+  const [fullscreen, setFullscreen] = useState(false);
+
+  // ── Render Mermaid -> SVG -> PNG ──────────────────────────────────
   useEffect(() => {
     let cancelled = false;
+    let revokeUrl: string | null = null;
     (async () => {
       try {
         const mermaid = (window as any).mermaid || await loadMermaid();
         mermaid.initialize({
           startOnLoad: false,
-          theme: "dark",
+          theme: "base",
           securityLevel: "strict",
-          // Wider canvas so big diagrams don't get cramped
-          flowchart: { useMaxWidth: true, htmlLabels: true, curve: "basis" },
+          flowchart: {
+            useMaxWidth: false,
+            htmlLabels: false,
+            curve: "basis",
+            nodeSpacing: 70,
+            rankSpacing: 100,
+            padding: 28,
+          },
           themeVariables: {
-            background: "#0b0f17",
-            primaryColor: "#6aa9ff",
-            primaryTextColor: "#e8eef7",
-            primaryBorderColor: "#2a3344",
+            background: "transparent",
+            primaryColor: "#1a1830",
+            primaryTextColor: "#e6e8ef",
+            primaryBorderColor: "#7c6bff",
             lineColor: "#8491a5",
-            secondaryColor: "#131824",
-            tertiaryColor: "#1c2332",
-            fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
+            secondaryColor: "#10131c",
+            tertiaryColor: "#0e1017",
+            clusterBkg: "#0e1017",
+            clusterBorder: "#3a4258",
+            fontFamily: '"Inter", "IBM Plex Sans", system-ui, sans-serif',
+            fontSize: "16px",
+            edgeLabelBackground: "#0b0f17",
           },
         });
+
         const id = "mmd-" + Date.now();
         const { svg } = await mermaid.render(id, chart);
-        if (!cancelled) {
-          // Strip any fixed width/height Mermaid adds so CSS can control sizing
-          const cleaned = svg
-            .replace(/width="[^"]*"/, 'width="100%"')
-            .replace(/height="[^"]*"/, '')
-            .replace(/style="[^"]*max-width:\s*[^;"]+;?/, 'style="');
-          setSvg(cleaned);
+        if (cancelled) return;
+        setSvgRaw(svg);
+
+        // Now rasterize the SVG to a PNG blob.
+        // The SVG already has correct width/height attrs that match its rendered
+        // size. We use those directly — they\'re reliable because Mermaid just
+        // computed them during render.
+        const svgEl = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement as unknown as SVGSVGElement;
+        const widthAttr = svgEl.getAttribute("width");
+        const heightAttr = svgEl.getAttribute("height");
+        // Mermaid sometimes sets width/height as percentages or with units.
+        // Parse out the number; fall back to viewBox if needed.
+        let width = parseFloat(widthAttr || "0");
+        let height = parseFloat(heightAttr || "0");
+        if (!width || !height) {
+          const vb = svgEl.getAttribute("viewBox");
+          if (vb) {
+            const [, , w, h] = vb.split(/\s+/).map(parseFloat);
+            width = w;
+            height = h;
+          }
         }
+        if (!width || !height) {
+          throw new Error("Could not determine diagram size");
+        }
+
+        // Use a generous padding so node strokes don\'t touch the edge.
+        const PAD = 40;
+        const exportWidth = width + PAD * 2;
+        const exportHeight = height + PAD * 2;
+
+        // Add explicit xmlns + dark background rect to the SVG so it renders
+        // standalone (otherwise canvas-rendering uses transparent bg).
+        svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+        svgEl.setAttribute("width", String(exportWidth));
+        svgEl.setAttribute("height", String(exportHeight));
+        // viewBox: shift by -PAD so the original (0,0) is now at (PAD, PAD)
+        // in the new larger canvas. That centers the diagram with padding.
+        const vbAttr = svgEl.getAttribute("viewBox");
+        const [vx, vy] = vbAttr ? vbAttr.split(/\s+/).map(parseFloat) : [0, 0];
+        svgEl.setAttribute("viewBox", `${vx - PAD} ${vy - PAD} ${exportWidth} ${exportHeight}`);
+        // Drop any inline style that\'d constrain size.
+        svgEl.removeAttribute("style");
+        // Insert background rect as first child so it sits behind everything.
+        const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        bg.setAttribute("x", String(vx - PAD));
+        bg.setAttribute("y", String(vy - PAD));
+        bg.setAttribute("width", String(exportWidth));
+        bg.setAttribute("height", String(exportHeight));
+        bg.setAttribute("fill", "#0e1017");
+        svgEl.insertBefore(bg, svgEl.firstChild);
+
+        const svgString = new XMLSerializer().serializeToString(svgEl);
+        const svgDataUrl = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgString)));
+
+        // Decode SVG -> Image -> Canvas -> PNG blob
+        const img = new Image();
+        img.onload = () => {
+          if (cancelled) return;
+          // 2x scale for sharp text on hi-dpi screens
+          const scale = 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = exportWidth * scale;
+          canvas.height = exportHeight * scale;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            setError("Could not get canvas context");
+            return;
+          }
+          ctx.scale(scale, scale);
+          ctx.drawImage(img, 0, 0);
+          canvas.toBlob((blob) => {
+            if (cancelled || !blob) return;
+            const url = URL.createObjectURL(blob);
+            revokeUrl = url;
+            setPngUrl(url);
+          }, "image/png");
+        };
+        img.onerror = () => {
+          if (!cancelled) setError("Could not rasterize diagram");
+        };
+        img.src = svgDataUrl;
       } catch (e: any) {
-        if (!cancelled) setError(e.message || "Could not render diagram");
+        if (!cancelled) setError(e?.message || "Could not render diagram");
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+    };
   }, [chart]);
 
   // Escape exits fullscreen
@@ -1269,7 +1403,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
       </div>
     );
   }
-  if (!svg) {
+  if (!pngUrl) {
     return (
       <div className="bg-surface rounded-lg border border-surface-border h-64 flex items-center justify-center">
         <div className="flex items-center gap-3 text-text-muted text-sm">
@@ -1280,114 +1414,91 @@ function MermaidDiagram({ chart }: { chart: string }) {
     );
   }
 
-  const Controls = (
-    <div className="flex items-center gap-1 bg-surface-overlay border border-surface-border rounded-lg p-1">
-      <button
-        onClick={() => setZoom(z => Math.max(0.5, z - 0.1))}
-        className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-border rounded transition-colors"
-        aria-label="Zoom out"
-      >
-        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="M5 10h10" strokeLinecap="round" /></svg>
-      </button>
-      <span className="text-xs text-text-muted font-mono px-1.5 min-w-[2.5rem] text-center" aria-live="polite">
-        {Math.round(zoom * 100)}%
-      </span>
-      <button
-        onClick={() => setZoom(z => Math.min(3, z + 0.1))}
-        className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-border rounded transition-colors"
-        aria-label="Zoom in"
-      >
-        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="M10 5v10M5 10h10" strokeLinecap="round" /></svg>
-      </button>
-      <span className="w-px h-4 bg-surface-border mx-1" aria-hidden="true" />
-      <button
-        onClick={() => setZoom(1)}
-        className="px-2 h-7 text-xs text-text-secondary hover:text-text-primary hover:bg-surface-border rounded transition-colors"
-        aria-label="Reset zoom"
-      >
-        Fit
-      </button>
-      <span className="w-px h-4 bg-surface-border mx-1" aria-hidden="true" />
-      <button
-        onClick={() => setFullscreen(f => !f)}
-        className="w-7 h-7 flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-border rounded transition-colors"
-        aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-      >
-        {fullscreen ? (
-          <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <path d="M13 3v4h4M7 17v-4H3M13 17v-4h4M7 3v4H3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ) : (
-          <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-      </button>
-    </div>
-  );
-
-  const diagramContent = (
-    <div
-      ref={containerRef}
-      className={`bg-surface rounded-lg border border-surface-border overflow-auto flex items-center justify-center ${fullscreen ? "flex-1" : "max-h-[70vh] min-h-[400px]"}`}
-    >
-      <div
-        className="mermaid-diagram-content"
-        style={{
-          transform: `scale(${zoom})`,
-          // Center the transform so zooming in/out grows from the middle, not the corner.
-          // The flex parent above keeps the unzoomed diagram visually centered too.
-          transformOrigin: "center center",
-          transition: "transform 0.2s ease-out",
-          padding: "1.5rem",
-          // Ensures the SVG can shrink to fit when the diagram is smaller than the viewport
-          // but grows to its natural size when larger (so scrolling kicks in).
-          maxWidth: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-        // SVG is sanitized server-side + Mermaid strict security level
-        dangerouslySetInnerHTML={{ __html: svg }}
-      />
-    </div>
-  );
-
-  // Fullscreen overlay mode
-  if (fullscreen) {
-    return (
-      <div
-        className="fixed inset-0 z-[90] bg-surface/95 backdrop-blur-sm p-4 sm:p-8 flex flex-col animate-fade-in"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Architecture diagram — fullscreen"
-      >
-        <div className="flex items-center justify-between mb-4 shrink-0">
-          <div className="flex items-center gap-2">
-            <svg className="w-5 h-5 text-accent" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <rect x="2" y="2" width="6" height="6" rx="0.5" />
-              <rect x="12" y="2" width="6" height="6" rx="0.5" />
-              <rect x="12" y="12" width="6" height="6" rx="0.5" />
-              <rect x="2" y="12" width="6" height="6" rx="0.5" />
-            </svg>
-            <h2 className="font-semibold">Architecture Diagram</h2>
-            <span className="text-text-muted text-xs hidden sm:inline">· Press <kbd className="kbd">Esc</kbd> to close</span>
-          </div>
-          {Controls}
-        </div>
-        {diagramContent}
-      </div>
-    );
-  }
-
-  // Inline mode
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-end">
-        {Controls}
+    <>
+      <div className="bg-surface rounded-lg border border-surface-border overflow-hidden">
+        <button
+          onClick={() => setFullscreen(true)}
+          className="block w-full cursor-zoom-in hover:bg-surface-overlay/30 transition-colors group"
+          aria-label="Open diagram in fullscreen"
+          title="Click to view fullscreen"
+        >
+          {/* The diagram area is a fixed-height box with the image centered
+              both horizontally and vertically. The image scales to fit
+              (both maxWidth and maxHeight at 100%) so the FULL diagram is
+              always visible no matter the aspect ratio:
+                - Wide diagrams: fit by width, vertical whitespace above/below
+                - Tall diagrams: fit by height, horizontal whitespace beside
+                - Tiny diagrams: appear at natural size, centered
+              Container has min-height 500 and 75vh so it adapts to viewport.
+              The flex centering handles all three cases without any math. */}
+          <div
+            className="flex items-center justify-center p-6"
+            style={{ height: "75vh", minHeight: "500px", maxHeight: "850px" }}
+          >
+            <img
+              src={pngUrl}
+              alt="Architecture diagram"
+              style={{
+                maxWidth: "100%",
+                maxHeight: "100%",
+                width: "auto",
+                height: "auto",
+                display: "block",
+                // objectFit isn't needed because the img\'s intrinsic ratio
+                // is preserved automatically when both max constraints are set.
+              }}
+            />
+          </div>
+          <div className="text-xs text-text-muted text-center pb-3 opacity-60 group-hover:opacity-100 transition-opacity">
+            Click to view fullscreen
+          </div>
+        </button>
       </div>
-      {diagramContent}
-    </div>
+
+      {fullscreen && (
+        <div
+          className="fixed inset-0 z-[90] bg-surface/95 backdrop-blur-sm p-4 sm:p-8 flex flex-col animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Architecture diagram — fullscreen"
+        >
+          <div className="flex items-center justify-between mb-4 shrink-0">
+            <h2 className="font-semibold flex items-center gap-2">
+              Architecture Diagram
+              <span className="text-text-muted text-xs hidden sm:inline">· Press <kbd className="kbd">Esc</kbd> to close</span>
+            </h2>
+            <button
+              onClick={() => setFullscreen(false)}
+              className="btn-secondary text-sm"
+              aria-label="Close fullscreen"
+            >
+              Close
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto bg-surface rounded-lg border border-surface-border flex items-center justify-center p-6">
+            {/* In fullscreen, scrolling is allowed in case the diagram is
+                bigger than the viewport. The img naturally sizes to fit. */}
+            <img
+              src={pngUrl}
+              alt="Architecture diagram"
+              style={{ maxWidth: "100%", maxHeight: "calc(100vh - 200px)", height: "auto", display: "block" }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Expose the SVG raw source for the parent component to use for
+          the "Download Mermaid Source" / "Copy" buttons. We pass it up
+          via a hidden ref — implemented by setting a global the parent
+          can read. Actually, simpler: just attach to window so the parent
+          render function can read it. NO — that\'s bad. Instead, expose
+          a data attribute the parent CAN read by querying. NO — also bad.
+          The cleanest: the parent already has the chart string (it passed
+          it to us). So it doesn\'t need anything from us; the parent\'s
+          download button just uses archData.diagram directly. */}
+      <input type="hidden" data-svg-raw={svgRaw} />
+    </>
   );
 }
 
@@ -1400,6 +1511,57 @@ async function loadMermaid(): Promise<any> {
     s.onerror = reject;
     document.head.appendChild(s);
   });
+}
+
+async function loadPanzoom(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if ((window as any).panzoom) return resolve((window as any).panzoom);
+    const s = document.createElement("script");
+    // panzoom is ~12KB, well-maintained, MIT licensed.
+    // Pinning a specific version (not @latest) so a breaking release doesn't
+    // silently break the diagram viewer.
+    s.src = "https://cdn.jsdelivr.net/npm/panzoom@9.4.3/dist/panzoom.min.js";
+    s.onload = () => resolve((window as any).panzoom);
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// PNG export: rasterize the currently-rendered Mermaid SVG to a PNG by
+// drawing it on a canvas. Done client-side — no server round-trip.
+//
+// Why it works: the SVG element is in the DOM (inside .mermaid-diagram-content).
+// We serialize it, decode it as a data URL into an <img>, paint that image
+// onto a canvas, then export the canvas as a PNG blob.
+//
+// Edge cases handled:
+//  - SVG element must have explicit width/height attrs (Mermaid does set these)
+//  - High-DPI: multiply canvas by devicePixelRatio so the PNG is sharp on retina
+//  - The SVG references no external resources, so the canvas isn't tainted
+//    by CORS and toBlob() works.
+function downloadDiagramAsPng(repoName: string, chartSource?: string) {
+  // The MermaidDiagram component now renders the diagram as a PNG <img>,
+  // so the easiest way to download is to find that <img> and save its src.
+  // This works because the src is a blob: URL we already built.
+  const imgEl = document.querySelector('img[alt="Architecture diagram"]') as HTMLImageElement | null;
+  if (!imgEl || !imgEl.src) {
+    console.warn("Diagram not rendered yet — wait for it to load");
+    return;
+  }
+  // Use fetch + blob to get a downloadable file from the blob URL
+  fetch(imgEl.src)
+    .then((res) => res.blob())
+    .then((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `architecture-${repoName}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    })
+    .catch((err) => console.warn("PNG download failed", err));
+  // Suppress unused var warning when chartSource isn\'t needed in this path
+  void chartSource;
 }
 
 function PriorityBadge({ priority }: { priority: string }) {

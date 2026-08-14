@@ -6,24 +6,33 @@ import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { auth as authApi } from "@/lib/api";
 
+// Module-level dedupe — React StrictMode in dev mounts effects twice, and
+// Next.js will sometimes do the same when the search params re-resolve.
+// Either way, we must NOT post the same OAuth code twice — the backend's
+// state token is single-use, so the second post fails with a 400 (looking
+// to the user like "OAuth state is invalid or expired") even though the
+// first one succeeded.
+//
+// A useRef would scope the dedupe to a single mount, which doesn't help us
+// across remounts. A module-level Map persists across both, keyed on the
+// authorization code. The promise itself is cached so concurrent callers
+// (the StrictMode double-mount) get the same result.
+const inFlight = new Map<string, Promise<{ access_token: string; user: unknown }>>();
+
 function CallbackContent() {
   const params = useSearchParams();
   const router = useRouter();
   const { login } = useAuth();
   const [error, setError] = useState("");
-  // Avoid double-firing the exchange. In dev, React strict mode mounts effects twice.
-  // More importantly, we need to defer declaring "no code" as an error until after
-  // the search params have actually resolved — otherwise we flash the error UI.
+  // Defer "no code" judgement so we don't flash the error UI before params hydrate.
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Wait until params are actually populated. `params.get` can transiently
-    // return null on first render before the URL is hydrated.
     const code = params?.get("code");
     const errParam = params?.get("error");
     const state = params?.get("state");
 
-    // GitHub itself may redirect back with ?error=access_denied if the user cancels
+    // GitHub itself may redirect back with ?error=access_denied when the user cancels.
     if (errParam) {
       setError(
         errParam === "access_denied"
@@ -34,8 +43,8 @@ function CallbackContent() {
       return;
     }
 
-    // No code yet and no error param — give Next.js one tick to hydrate the search params
-    // before concluding the URL is truly empty.
+    // No code yet — give Next.js one tick to hydrate the search params before
+    // concluding the URL is truly empty.
     if (!code) {
       const t = setTimeout(() => {
         if (!params?.get("code") && !params?.get("error")) {
@@ -46,16 +55,33 @@ function CallbackContent() {
       return () => clearTimeout(t);
     }
 
+    // Dedupe: if we're already exchanging this exact code, await the
+    // existing promise instead of posting a second time. The first caller
+    // populated `inFlight[code]`; the StrictMode-doubled second caller
+    // attaches to the same promise.
     let cancelled = false;
-    authApi
-      .githubCallback(code, state ?? undefined)
+    let request = inFlight.get(code);
+    if (!request) {
+      request = authApi.githubCallback(code, state ?? undefined);
+      inFlight.set(code, request);
+      // Clean up the cache entry once the promise settles so memory doesn't
+      // grow unbounded across many sign-ins in one session.
+      request.finally(() => {
+        // Tiny delay before purging — if any straggling re-mount fires after
+        // settlement but before purge, it'll still hit the cached result
+        // rather than posting fresh.
+        setTimeout(() => inFlight.delete(code), 5000);
+      });
+    }
+
+    request
       .then((result) => {
         if (cancelled) return;
-        login(result.access_token, result.user);
-        // Go straight to the dashboard — users expect to land in the app after signing in
+        // Cast through unknown — the API typing for `user` lives in lib/api.ts.
+        login(result.access_token, result.user as Parameters<typeof login>[1]);
         router.replace("/dashboard");
       })
-      .catch((err) => {
+      .catch((err: Error) => {
         if (cancelled) return;
         setError(err.message || "GitHub authentication failed. Please try signing in again.");
         setReady(true);
@@ -66,8 +92,6 @@ function CallbackContent() {
     };
   }, [params, login, router]);
 
-  // Only render the error UI AFTER we've definitively confirmed an error —
-  // prevents the split-second error flash while params hydrate.
   if (error && ready) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface px-6">

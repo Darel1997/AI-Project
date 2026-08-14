@@ -72,7 +72,11 @@ _FEATURE_BUDGETS: dict[str, FeatureBudget] = {
     # Tasks — structured JSON, 5 items × ~200 tokens. 1500 is generous.
     "task_generator":   FeatureBudget(model="haiku", max_tokens=1500, sample_files=10, chars_per_file=1500),
     # Architecture diagram — Mermaid graph, 8-15 nodes. 800 tokens covers it.
-    "architecture":     FeatureBudget(model="haiku", max_tokens=800,  sample_files=60, chars_per_file=0),
+    # Architecture diagram — small, simple flowchart.
+    # Sonnet still — diagram quality > speed for this feature, and 6-9 nodes
+    # well-labeled is harder than a sprawling 18-node mess. 1000 tokens fits
+    # comfortably; smaller diagrams take fewer tokens to express.
+    "architecture":     FeatureBudget(model="sonnet", max_tokens=1000, sample_files=80, chars_per_file=0),
     # Docs — long-form Markdown. Sonnet's prose quality matters here.
     "documentation":    FeatureBudget(model="sonnet", max_tokens=3000, sample_files=10, chars_per_file=1500),
     # Onboarding guide — long-form Markdown. Same reasoning as docs.
@@ -520,23 +524,171 @@ class AIService:
 
     # ── Architecture Diagram (Mermaid) ────────────────────────────
 
+    # ── Architecture: file classification ──────────────────────────
+    #
+    # Heuristic classifier that buckets a file into a layer based on path.
+    # Order matters: more specific patterns first. The buckets map directly
+    # to Mermaid subgraphs in the prompt below, so any change here must
+    # stay in sync with the subgraph labels in the prompt.
+    #
+    # Categories deliberately mirror typical web-app layers, not language
+    # specifics — a "models" file is a model whether it's Python or TS.
+    # External integrations are inferred from filename keywords (github,
+    # stripe, slack, anthropic) so the diagram shows real third-party deps.
+
+    _ARCH_CATEGORIES: list[tuple[str, list[str]]] = [
+        # (label, list of path-substring patterns)
+        ("API routes",       ["/api/endpoints/", "/api/v1/", "/routes/", "/handlers/"]),
+        ("Background jobs",  ["/workers/", "/tasks/", "/jobs/", "celery", "rq_worker"]),
+        ("Domain services",  ["/services/"]),
+        ("Database models",  ["/models/", "schema.py", "schema.ts"]),
+        ("Database schemas", ["/schemas/", "/dto/", "/types/api/"]),
+        ("Auth & security",  ["/auth/", "security.py", "/core/security", "crypto.py"]),
+        ("Frontend pages",   ["/app/", "/pages/"]),
+        ("Frontend components", ["/components/"]),
+        ("Frontend hooks/state",  ["/hooks/", "/store/", "/context/"]),
+        ("Frontend lib",     ["/lib/", "/utils/"]),
+        ("Config & infra",   ["docker-compose", "dockerfile", "nginx", "/config/", "/core/config"]),
+        ("Tests",            ["/tests/", "/test/", "/e2e/", ".test.", ".spec."]),
+        ("Migrations",       ["/migrations/", "/alembic/"]),
+    ]
+
+    # External integrations detected from path keywords. Each becomes a
+    # discrete node in the "External services" subgraph.
+    _ARCH_EXTERNALS: dict[str, list[str]] = {
+        "GitHub":   ["github_service", "/github/", "gh_token", "github.py"],
+        "Anthropic / Claude": ["anthropic", "claude", "ai_service"],
+        "Stripe":   ["stripe", "billing"],
+        "Slack":    ["slack"],
+        "OpenAI":   ["openai"],
+        "ChromaDB / vector store": ["chroma", "embedding_service"],
+        "Redis":    ["redis", "rate_limit", "cache"],
+        "Postgres": ["postgres", "asyncpg", "psycopg"],
+    }
+
+    @classmethod
+    def _classify_files(cls, file_summaries: list[dict]) -> tuple[dict[str, list[str]], list[str], dict[str, int]]:
+        """
+        Bucket files into architectural categories and detect external
+        integrations. Returns (categories, externals, language_counts).
+
+        Each category value is a list of file paths. Externals is a list
+        of integration labels for which we found at least one match.
+        Language counts come from the per-file `language` field if present.
+        """
+        categories: dict[str, list[str]] = {label: [] for label, _ in cls._ARCH_CATEGORIES}
+        categories["Other / misc"] = []
+        externals: set[str] = set()
+        languages: dict[str, int] = {}
+
+        for f in file_summaries:
+            path = (f.get("path") or "").lower()
+            if not path:
+                continue
+            # Count languages for the prompt context block
+            lang = (f.get("language") or "").strip().lstrip(".")
+            if lang:
+                languages[lang] = languages.get(lang, 0) + 1
+            # Detect external services
+            for ext_label, patterns in cls._ARCH_EXTERNALS.items():
+                if any(p in path for p in patterns):
+                    externals.add(ext_label)
+            # Bucket into the first matching category, else "Other"
+            placed = False
+            for label, patterns in cls._ARCH_CATEGORIES:
+                if any(p in path for p in patterns):
+                    categories[label].append(f["path"])
+                    placed = True
+                    break
+            if not placed:
+                categories["Other / misc"].append(f["path"])
+
+        # Drop empty buckets so the prompt stays focused.
+        categories = {k: v for k, v in categories.items() if v}
+        return categories, sorted(externals), languages
+
     async def a_generate_architecture_diagram(self, repo_id: int, file_summaries: List[dict]) -> str:
+        """
+        Generate a layered Mermaid architecture diagram.
+
+        Approach:
+        1. Classify files into architectural categories (API routes, services,
+           models, frontend pages, etc.) using a stable path heuristic. Pre-
+           classification means the LLM doesn't have to guess what 'auth.py' is.
+        2. Detect external integrations from filename keywords (Anthropic,
+           GitHub, Stripe, etc.) so the diagram surfaces real third-party deps.
+        3. Hand Claude a structured inventory plus a strict format spec
+           demanding subgraphs, classDef styling, and explicit data-flow edges.
+        """
         budget = _budget_for("architecture")
-        file_list = "\n".join(f"- `{f['path']}`" for f in file_summaries[: budget.sample_files])
+        categories, externals, languages = self._classify_files(file_summaries)
+
+        # Build a structured inventory string. Truncate per-category file
+        # lists so a 60-file backend monorepo doesn't blow the prompt budget,
+        # but show enough that Claude can spot the patterns.
+        MAX_PER_CATEGORY = 12
+        inventory_lines: list[str] = []
+        for label, paths in categories.items():
+            head = paths[:MAX_PER_CATEGORY]
+            extra = len(paths) - len(head)
+            inventory_lines.append(f"### {label} ({len(paths)} files)")
+            inventory_lines.extend(f"  - {p}" for p in head)
+            if extra > 0:
+                inventory_lines.append(f"  - ...and {extra} more")
+            inventory_lines.append("")
+        if externals:
+            inventory_lines.append("### Detected external integrations")
+            inventory_lines.extend(f"  - {x}" for x in externals)
+            inventory_lines.append("")
+        if languages:
+            top_langs = sorted(languages.items(), key=lambda kv: -kv[1])[:6]
+            inventory_lines.append("### File-count by language: " + ", ".join(f"{l} ({n})" for l, n in top_langs))
+
+        inventory = "\n".join(inventory_lines)
 
         system = (
-            "You are an architect visualizing a codebase. "
-            "Generate a Mermaid diagram (graph TD or flowchart TD) showing the main "
-            "components and their relationships. Group related files into logical nodes. "
-            "Aim for 8-12 nodes — show the big picture, not every file. "
-            "Use meaningful labels (e.g., 'API Layer', 'Auth Service', 'Database'). "
-            "Return ONLY the Mermaid diagram code, starting with 'graph TD' or 'flowchart TD'. "
-            "No markdown fences, no explanation, no preamble."
+            "You are creating a high-level component diagram for a codebase. Imagine the "
+            "viewer has never seen this project — your diagram should help them understand "
+            "the main parts in 30 seconds.\n\n"
+            "STRICT RULES (the diagram is invalid if any are violated):\n"
+            "  1. First line must be exactly: flowchart TB\n"
+            "  2. EVERY external integration listed in the inventory MUST appear as a node. "
+            "Use double-circle: `Anthropic((Anthropic / Claude))`. If the inventory says "
+            "Anthropic, GitHub, and ChromaDB are detected, the diagram MUST contain all three.\n"
+            "  3. Use these shapes consistently:\n"
+            "       - Rectangle `[Name]` for application components (frontend, API, services, workers)\n"
+            "       - Cylinder `[(Name)]` for databases and persistent stores (Postgres, ChromaDB, Redis)\n"
+            "       - Double-circle `((Name))` for external/third-party services (Anthropic, GitHub, Stripe, Slack)\n"
+            "       - Stadium `([Name])` for the User / Client at the entry point\n"
+            "  4. Total nodes: 7-12. Aim for the high-leverage ones — entry point, primary API, "
+            "the 2-3 most important services, every datastore, every external. Drop minor utilities.\n"
+            "  5. Edges represent a real call or data flow. Solid arrow `-->` for synchronous "
+            "calls. Dotted arrow `-.->` for asynchronous / queued / webhook flows. NEVER draw "
+            "an edge you cannot justify from the file inventory — when in doubt, leave it out.\n"
+            "  6. Label edges only when the label is informative ('webhook', 'embeddings', "
+            "'OAuth', 'queue'). Plain calls between components do not need labels.\n"
+            "  7. Node names: short, descriptive ROLE-based labels. 'Indexing Worker' not "
+            "'tasks.py'. 'Repo Store' not 'postgres_models'. Max 3 words.\n"
+            "  8. No subgraph blocks. No classDef. No styling. Shape + position carry the meaning.\n"
+            "  9. Return ONLY the Mermaid source. No fences (no ```mermaid). No commentary.\n\n"
+            "DIAGRAM STRUCTURE GUIDE (use as a template, adapt to this codebase):\n"
+            "   - Top of diagram: User / Client (stadium shape)\n"
+            "   - Below: frontend, then API gateway / routes\n"
+            "   - Middle: domain services, background workers\n"
+            "   - Bottom row: data stores (cylinders)\n"
+            "   - Right side: external services (double-circles)\n"
+            "   Connect them with edges that match the inventory."
         )
-        user = f"Generate an architecture diagram for this codebase:\n\n{file_list}"
-        result = await _chat_async(system, user, feature_key="architecture", temperature=0.3)
 
-        # strip any markdown fences just in case
+        user = (
+            "Codebase inventory (pre-classified by file path heuristics):\n\n"
+            f"{inventory}\n\n"
+            "Render a Mermaid `flowchart LR` per the rules above."
+        )
+
+        result = await _chat_async(system, user, feature_key="architecture", temperature=0.2)
+
+        # strip any markdown fences just in case the model adds them
         cleaned = _strip_fences(result)
         return cleaned
 
