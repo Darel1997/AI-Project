@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="RepoInsight AI — a repository tree read through a lens">
+  <title>RepoInsight AI</title>
+
+  <defs>
+    <linearGradient id="ri-ring" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#c4a7f7"/>
+      <stop offset="55%" stop-color="#8b76f0"/>
+      <stop offset="100%" stop-color="#6c5ce7"/>
+    </linearGradient>
+
+    <linearGradient id="ri-handle" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c6bff"/>
+      <stop offset="100%" stop-color="#574ac9"/>
+    </linearGradient>
+
+    <linearGradient id="ri-hit" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#b794f4"/>
+      <stop offset="100%" stop-color="#6c5ce7"/>
+    </linearGradient>
+
+    <!-- The glass: light enough to keep the branches legible on a light card -->
+    <linearGradient id="ri-glass" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#efeaff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Handle, drawn under the ring so the joint stays clean -->
+  <line x1="82" y1="82" x2="105" y2="105"
+        stroke="url(#ri-handle)" stroke-width="13" stroke-linecap="round"/>
+
+  <circle cx="55" cy="55" r="35.5" fill="url(#ri-glass)"/>
+
+  <!-- The repository, as its branch graph -->
+  <g fill="none" stroke="#6c5ce7" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M40 55 H56 V42 H62"/>
+    <path d="M56 55 V68 H62"/>
+  </g>
+
+  <circle cx="40" cy="55" r="7" fill="#6c5ce7"/>
+  <circle cx="70" cy="68" r="6.5" fill="#ffffff" stroke="#6c5ce7" stroke-width="4.5"/>
+
+  <!-- The cited file: the one node the lens has resolved -->
+  <circle cx="70" cy="42" r="8" fill="url(#ri-hit)"/>
+
+  <circle cx="55" cy="55" r="35.5" fill="none" stroke="url(#ri-ring)" stroke-width="9"/>
+</svg>
